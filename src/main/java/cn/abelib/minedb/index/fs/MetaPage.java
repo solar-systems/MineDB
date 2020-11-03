@@ -32,7 +32,7 @@ public class MetaPage {
      */
     private final short minorVersion = 1;
     private long totalPage;
-    private long rootPosition;
+    private long nextPage;
     private int pageSize;
     private int entrySize;
     private int degree;
@@ -52,6 +52,7 @@ public class MetaPage {
         if (Files.exists(this.path)) {
             readMetaPage();
         } else {
+            Files.createFile(path);
             createMetaPage();
         }
     }
@@ -61,7 +62,6 @@ public class MetaPage {
      * 写入磁盘文件
      */
     private void createMetaPage() throws IOException {
-        Files.createFile(path);
         FileChannel channel = FileChannel.open(path, StandardOpenOption.WRITE);
         channel.position(0);
 
@@ -76,21 +76,26 @@ public class MetaPage {
         buffer.putInt(conf.getPageSize());
         // 8B
         buffer.putLong(0L);
+        // 8B
+        buffer.putLong(0L);
         // 4B
         buffer.putInt(conf.getEntrySize());
         // 4B
         buffer.putInt(conf.getDegree());
         // total = 30B
+        buffer.flip();
         channel.write(buffer);
+        channel.force(true);
+        channel.close();
     }
 
     /**
      * 从数据库文件中读取信息
      */
     private void readMetaPage() throws IOException {
-        FileChannel channel = FileChannel.open(path);
+        FileChannel channel = FileChannel.open(path, StandardOpenOption.READ);
         channel.position(0);
-        ByteBuffer buffer = ByteBuffer.allocate(conf.getPageSize());
+        ByteBuffer buffer = ByteBuffer.allocate(30);
         channel.read(buffer);
         buffer.flip();
         String magic = ByteUtils.toUTF8String(buffer, 6);
@@ -102,6 +107,7 @@ public class MetaPage {
         }
         this.pageSize = buffer.getInt();
         this.totalPage = buffer.getLong();
+        this.nextPage = buffer.getLong();
         this.entrySize = buffer.getInt();
         this.degree = buffer.getInt();
 
@@ -109,5 +115,7 @@ public class MetaPage {
         this.conf.setEntrySize(entrySize);
         this.conf.setDegree(degree);
         this.metaNode.setPageTotal(totalPage);
+        this.metaNode.setNextPage(nextPage);
+        channel.close();
     }
 }

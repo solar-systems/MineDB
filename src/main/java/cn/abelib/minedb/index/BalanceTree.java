@@ -38,31 +38,25 @@ public class BalanceTree {
             throw new IllegalArgumentException("Invalid blank key");
         }
 
-
-
     }
 
     /**
      * 初始化
      */
     private void init() throws IOException {
-        Path path = Paths.get(configuration.getDbName());
-        this.metaNode = new MetaNode(path, configuration);
+        if (Objects.isNull(this.metaNode)) {
+            this.metaNode = new MetaNode(configuration);
+        }
+        if (Objects.isNull(this.root)) {
+            this.root = new TreeNode(configuration, true, true, 0L);
+        }
     }
 
-    public MetaNode getMetaPage() {
+    public MetaNode getMetaNode() {
         return metaNode;
-    }
-
-    public void setMetaPage(MetaNode metaNode) {
-        this.metaNode = metaNode;
     }
 
     public Configuration getConfiguration() {
         return configuration;
-    }
-
-    public void setConfiguration(Configuration configuration) {
-        this.configuration = configuration;
     }
 }

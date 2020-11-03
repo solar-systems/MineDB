@@ -3,6 +3,8 @@ package cn.abelib.minedb.index;
 import cn.abelib.minedb.index.fs.OverFlowPage;
 import cn.abelib.minedb.index.fs.Page;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -12,6 +14,10 @@ import java.util.List;
  * 内存中的节点
  */
 public class TreeNode {
+    /**
+     * 当前结点的地址
+     */
+    private long position;
     /**
      * 是否为叶子节点
      */
@@ -27,7 +33,7 @@ public class TreeNode {
     /**
      * 叶节点号
      */
-    private int pageNo;
+    private long pageNo;
     /**
      * 父节点
      */
@@ -77,8 +83,11 @@ public class TreeNode {
      */
     private Configuration conf;
 
-    public TreeNode(Configuration conf, boolean isLeaf, boolean isRoot, int pageNo) {
+    private Path path;
+
+    public TreeNode(Configuration conf, boolean isLeaf, boolean isRoot, long pageNo) {
         this.conf = conf;
+        this.path = Paths.get(conf.getDbName());
         this.isLeaf = isLeaf;
         this.isRoot = isRoot;
         this.pageNo = pageNo;
@@ -90,6 +99,7 @@ public class TreeNode {
         this.children = new ArrayList<>();
         this.isFull = false;
         this.isDeleted = false;
+        this.page = new Page(path, this);
     }
 
     public boolean isLeaf() {
@@ -124,7 +134,7 @@ public class TreeNode {
         this.keys = keys;
     }
 
-    public int getPageNo() {
+    public long getPageNo() {
         return pageNo;
     }
 
@@ -198,5 +208,17 @@ public class TreeNode {
 
     public int getEntrySize() {
         return entries.size();
+    }
+
+    public long getPosition() {
+        return position;
+    }
+
+    public void setPosition(long position) {
+        this.position = position;
+    }
+
+    public Configuration getConfiguration() {
+        return conf;
     }
 }

@@ -29,7 +29,7 @@ public class Configuration {
     private String dbName;
 
     public Configuration(int degree) {
-        this(16 * 1024, 1024, 1014, degree, 1024);
+        this(16 * 1024, 1024, 1024, degree, 1024);
     }
 
     public Configuration(int pageSize, int keySize, int entrySize, int degree, int headerSize) {

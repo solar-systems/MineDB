@@ -4,6 +4,7 @@ import cn.abelib.minedb.index.fs.MetaPage;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /**
  * @Author: abel.huang
@@ -21,7 +22,10 @@ public class MetaNode {
     private long pageSize;
 
     private int entrySize;
-
+    /**
+     * 下一个页的地址
+     */
+    private long nextPage;
     /**
      * 根节点
      */
@@ -31,9 +35,9 @@ public class MetaNode {
 
     private Configuration conf;
 
-    public MetaNode(Path path, Configuration conf) throws IOException {
+    public MetaNode(Configuration conf) throws IOException {
         this.pageTotal = 0;
-        this.path = path;
+        this.path = Paths.get(conf.getDbName());
         this.conf = conf;
         this.page = new MetaPage(this.path, this);
     }
@@ -76,5 +80,13 @@ public class MetaNode {
 
     public Configuration getConfiguration() {
         return this.conf;
+    }
+
+    public long getNextPage() {
+        return nextPage;
+    }
+
+    public void setNextPage(long nextPage) {
+        this.nextPage = nextPage;
     }
 }
