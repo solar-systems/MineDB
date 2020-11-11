@@ -1,5 +1,6 @@
 package cn.abelib.minedb.index.fs;
 
+import cn.abelib.minedb.utils.ByteUtils;
 import cn.abelib.minedb.utils.KeyValue;
 
 import java.nio.ByteBuffer;
@@ -18,14 +19,6 @@ public class Record {
      */
     private int totalLen;
     /**
-     * 当前记录的前一个记录位置
-     */
-    private int prev;
-    /**
-     * 当前记录的下一个记录位置
-     */
-    private int next;
-    /**
      * 键长度
      */
     private int keySize;
@@ -42,17 +35,49 @@ public class Record {
      */
     private byte[] value;
 
-    private Record(KeyValue keyValue, int position) {
+    public Record() {}
+
+    /**
+     *
+     * @param keyValue
+     * @param position
+     */
+    public Record(KeyValue keyValue, int position) {
+        // position + totalLen + keySize + valueSize = 4 * 4 = 16
+        this.totalLen = 16;
         this.position = position;
-        
+        this.key = ByteUtils.getBytesUTF8(keyValue.getKey());
+        this.keySize = key.length;
+        this.totalLen += keySize;
+        this.value = ByteUtils.getBytesUTF8(keyValue.getValue());
+        this.valueSize = value.length;
+        this.totalLen += valueSize;
     }
+
+    public Record(ByteBuffer buffer) {
+        buffer.flip();
+        this.position = buffer.getInt();
+        this.totalLen = buffer.getInt();
+        this.keySize = buffer.getInt();
+        this.key = ByteUtils.toBytes(buffer, keySize);
+        this.valueSize = buffer.getInt();
+        this.value = ByteUtils.toBytes(buffer, valueSize);
+    }
+
 
     /**
      * 返回每个记录的ByteBuffer对象
      * @return
      */
     public ByteBuffer byteBuffer() {
-        return null;
+        ByteBuffer buffer = ByteBuffer.allocate(totalLen);
+        buffer.putInt(position);
+        buffer.putInt(totalLen);
+        buffer.putInt(keySize);
+        buffer.put(key);
+        buffer.putInt(valueSize);
+        buffer.put(value);
+        return buffer;
     }
 
     public int getPosition() {
@@ -69,22 +94,6 @@ public class Record {
 
     public void setTotalLen(int totalLen) {
         this.totalLen = totalLen;
-    }
-
-    public int getPrev() {
-        return prev;
-    }
-
-    public void setPrev(int prev) {
-        this.prev = prev;
-    }
-
-    public int getNext() {
-        return next;
-    }
-
-    public void setNext(int next) {
-        this.next = next;
     }
 
     public int getKeySize() {

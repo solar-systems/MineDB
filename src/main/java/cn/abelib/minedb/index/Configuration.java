@@ -25,6 +25,10 @@ public class Configuration {
      * 页头部长度
      */
     private int headerSize;
+    /**
+     * 每个数据页
+     */
+    private int childrenSize;
 
     private String dbName;
 
@@ -87,5 +91,13 @@ public class Configuration {
 
     public void setDbName(String dbName) {
         this.dbName = dbName;
+    }
+
+    public int getChildrenSize() {
+        return childrenSize;
+    }
+
+    public void setChildrenSize(int childrenSize) {
+        this.childrenSize = childrenSize;
     }
 }

@@ -1,12 +1,14 @@
 package cn.abelib.minedb.index;
 
-import cn.abelib.minedb.index.fs.OverFlowPage;
 import cn.abelib.minedb.index.fs.Page;
+import cn.abelib.minedb.index.fs.PageLoader;
+import cn.abelib.minedb.utils.KeyValue;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * @Author: abel.huang
@@ -27,10 +29,6 @@ public class TreeNode {
      */
     private boolean isRoot;
     /**
-     * 是否为溢出节点
-     */
-    private boolean isOverFlow;
-    /**
      * 叶节点号
      */
     private long pageNo;
@@ -49,13 +47,9 @@ public class TreeNode {
     /**
      * 节点的键情况
      */
-    private List<String> keys;
+    private List<KeyValue> keyValues;
     /**
-     * 节点的记录值, 目前会采用定长的方式
-     */
-    private List<String> entries;
-    /**
-     * 改页当前记录数量
+     * 该页当前记录数量
      */
     private int entrySize;
     /**
@@ -71,13 +65,13 @@ public class TreeNode {
      */
     private boolean isDeleted;
     /**
+     * 当前页是否为脏页(即当前页进行过修改，与磁盘页产生区别)
+     */
+    private boolean isDirty;
+    /**
      * 对应磁盘的页
      */
     private Page page;
-    /**
-     * 当前节点对应的溢出页
-     */
-    private List<OverFlowPage> flowPages;
     /**
      * 配置文件
      */
@@ -94,12 +88,33 @@ public class TreeNode {
         this.parent = null;
         this.next = null;
         this.previous = null;
-        this.entries = new ArrayList<>();
+        this.keyValues = new ArrayList<>();
         this.entrySize = 0;
         this.children = new ArrayList<>();
         this.isFull = false;
         this.isDeleted = false;
-        this.page = new Page(path, this);
+        this.page = new Page(this);
+    }
+
+    public TreeNode() {
+
+    }
+
+    public boolean isDirty() {
+        return isDirty;
+    }
+
+    /**
+     * 改变改状态会被加入到全局页缓存中
+     * @param dirty
+     */
+    public void setDirty(boolean dirty) {
+        isDirty = dirty;
+        if (dirty) {
+            GlobalPageCache.putDirtyPage(this);
+        } else {
+            GlobalPageCache.putCleanPage(this);
+        }
     }
 
     public boolean isLeaf() {
@@ -118,30 +133,26 @@ public class TreeNode {
         isRoot = root;
     }
 
-    public boolean isOverFlow() {
-        return isOverFlow;
+    public List<KeyValue> getKeyValues() {
+        return this.keyValues;
     }
 
-    public void setOverFlow(boolean overFlow) {
-        isOverFlow = overFlow;
-    }
-
-    public List<String> getKeys() {
-        return keys;
-    }
-
-    public void setKeys(List<String> keys) {
-        this.keys = keys;
+    public void setKeys(List<KeyValue> keyValues) {
+        this.keyValues = keyValues;
     }
 
     public long getPageNo() {
         return pageNo;
     }
 
-    public void setPageNo(int pageNo) {
+    public void setPageNo(long pageNo) {
         this.pageNo = pageNo;
     }
 
+    /**
+     * 获得当前结点的父节点
+     * @return
+     */
     public TreeNode getParent() {
         return parent;
     }
@@ -151,6 +162,9 @@ public class TreeNode {
     }
 
     public TreeNode getPrevious() {
+        if (Objects.isNull(previous)) {
+            setPrevious(PageLoader.loadTreeNode(conf, this.page.getPrevious()));
+        }
         return previous;
     }
 
@@ -159,6 +173,9 @@ public class TreeNode {
     }
 
     public TreeNode getNext() {
+        if (Objects.isNull(next)) {
+            setNext(PageLoader.loadTreeNode(conf, this.page.getNext()));
+        }
         return next;
     }
 
@@ -166,15 +183,13 @@ public class TreeNode {
         this.next = next;
     }
 
-    public List<String> getEntries() {
-        return entries;
-    }
-
-    public void setEntries(List<String> entries) {
-        this.entries = entries;
-    }
-
+    /**
+     * 从磁盘加载子节点
+     * @return
+     */
     public List<TreeNode> getChildren() {
+        List<Long> childrenPointers = this.getPage().getChildren();
+        setChildren(PageLoader.loadTreeNodes(conf, childrenPointers));
         return children;
     }
 
@@ -182,6 +197,11 @@ public class TreeNode {
         this.children = children;
     }
 
+    /**
+     * todo, 需要判断该节点磁盘空间是否已经满了
+     * 判断是否需要进行分裂
+     * @return
+     */
     public boolean isFull() {
         return isFull;
     }
@@ -204,10 +224,6 @@ public class TreeNode {
 
     public void setPage(Page page) {
         this.page = page;
-    }
-
-    public int getEntrySize() {
-        return entries.size();
     }
 
     public long getPosition() {

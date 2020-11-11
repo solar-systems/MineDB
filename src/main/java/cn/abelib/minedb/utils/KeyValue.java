@@ -1,7 +1,6 @@
 package cn.abelib.minedb.utils;
 
-import java.util.ArrayList;
-import java.util.List;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * @Author: abel.huang
@@ -9,21 +8,21 @@ import java.util.List;
  */
 public class KeyValue implements Comparable<KeyValue> {
     private String key;
-    private List<Object> values;
+    private String value;
 
-    public KeyValue(String key, Object value) {
+    public KeyValue(String key, String value) {
         this(key);
-        this.values.add(value);
+        this.value = value;
     }
 
     public KeyValue(String key) {
         this.key = key;
-        this.values = new ArrayList<>();
+        this.value = StringUtils.EMPTY;
     }
 
     public KeyValue(KeyValue keyValue) {
         this.key = keyValue.getKey();
-        this.values = keyValue.getValues();
+        this.value = keyValue.getValue();
     }
 
     public String getKey() {
@@ -34,12 +33,12 @@ public class KeyValue implements Comparable<KeyValue> {
         this.key = key;
     }
 
-    public List<Object> getValues() {
-        return values;
+    public String getValue() {
+        return value;
     }
 
-    public void setValues(List<Object> values) {
-        this.values = values;
+    public void setValue(String value) {
+        this.value = value;
     }
 
     @Override
@@ -51,7 +50,7 @@ public class KeyValue implements Comparable<KeyValue> {
     public String toString() {
         return "KeyValue{" +
                 "key='" + key + '\'' +
-                ", values=" + values +
+                ", value=" + value +
                 '}';
     }
 }

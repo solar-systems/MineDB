@@ -2,10 +2,12 @@ package cn.abelib.minedb.index.fs;
 
 import cn.abelib.minedb.index.Configuration;
 import cn.abelib.minedb.index.TreeNode;
+import cn.abelib.minedb.utils.KeyValue;
+import com.google.common.collect.Lists;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * @Author: abel.huang
@@ -20,6 +22,10 @@ public class Page {
      */
     private long position;
     /**
+     * 页大小
+     */
+    private int pageSize;
+    /**
      * 父节点指针
      */
     private long parent;
@@ -33,7 +39,7 @@ public class Page {
     private long next;
     /**
      * 每个页头部大小，
-     * 会有部分空缺
+     * 会有部分空缺, 由配置文件决定
      */
     private int headerSize;
     /**
@@ -45,19 +51,15 @@ public class Page {
     /**
      * 当前页编号
      */
-    private int pageNo;
-    /**
-     * 最小记录索引
-     */
-    private int minRecord;
-    /**
-     * 最大记录索引
-     */
-    private int maxRecord;
+    private long pageNo;
     /**
      * 空闲空间位置
      */
     private int free;
+    /**
+     * 子节点数量
+     */
+    private int childrenNum;
     /**
      * 子节点
      */
@@ -71,56 +73,188 @@ public class Page {
      */
     private boolean isLeaf;
     /**
-     * 是否是溢出节点
-     */
-    private boolean isOverFlow;
-    /**
      * 节点是否已经满了
      */
     private boolean isFull;
     /**
-     * 节点是否已经被删除
+     * 具体的记录值
      */
-    private boolean isDeleted;
-    /**
-     * 节点是否已经过半
-     */
-    private boolean isHalf;
-    private Path path;
+    private List<Record> records;
     private TreeNode node;
     private Configuration conf;
 
-    public Page(Path path, TreeNode node) {
-        this.path = path;
+    /**
+     * 基于TreeNode
+     * @param node
+     */
+    public Page(TreeNode node) {
         this.node = node;
-        this.conf = node.getConfiguration();
-        persistence();
+        init();
     }
 
-    private void persistence() {
-        // 判断数据库文件是否存在
-        if (Files.exists(this.path)) {
-            readPage();
-        } else {
-            createPage();
+    /**
+     * 读取磁盘中的一个页
+     * @param buffer
+     */
+    public Page(ByteBuffer buffer) {
+        this.children = Lists.newArrayList();
+        buffer.flip();
+        this.position = buffer.getLong();
+        this.pageSize = buffer.getInt();
+        this.parent = buffer.getLong();
+        this.previous = buffer.getLong();
+        this.next = buffer.getLong();
+        this.headerSize = buffer.getInt();
+        this.childrenSize = buffer.getInt();
+        this.pageNo = buffer.getLong();
+        this.free = buffer.getInt();
+        this.childrenNum = buffer.getInt();
+        this.isRoot = buffer.get() == 1;
+        this.isLeaf = buffer.get() == 1;
+        this.isFull = buffer.get() == 1;
+        buffer.position(this.headerSize);
+        for (int i = 0; i < childrenNum; i++) {
+            children.add(buffer.getLong());
         }
+
+        buffer.position(this.childrenSize);
+        // todo 读出record的值
+
+        this.node = new TreeNode();
+        this.node.setPosition(position);
+        this.node.setLeaf(isLeaf);
+        this.node.setRoot(isRoot);
+        this.node.setFull(isFull);
+        this.node.setPageNo(pageNo);
+    }
+
+    private void init() {
+        this.conf = this.node.getConfiguration();
+        // 当前开始位置
+        this.position = this.node.getPosition();
+        // 父节点位置
+        this.parent = getNodePosition(this.node.getParent());
+        this.previous = getNodePosition(this.node.getPrevious());
+        this.next = getNodePosition(this.node.getNext());
+        this.headerSize = this.conf.getHeaderSize();
+        this.childrenSize = this.conf.getChildrenSize();
+        this.pageNo = this.node.getPageNo();
+        recordsProperties(this.node.getKeyValues());
+    }
+
+    private long getNodePosition(TreeNode node) {
+        if (Objects.isNull(node)) {
+            return 0L;
+        }
+        return node.getPosition();
     }
 
     /**
-     * 创建新的磁盘页
+     * 将keyValues转为List<Record>以及其他相关的属性,
+     * 默认情况下所有结点内部数据从小到大排列
+     * @param keyValues
+     * @return
      */
-    private void createPage() {
-        this.conf.getEntrySize();
+    private void recordsProperties(List<KeyValue> keyValues) {
+        this.records = Lists.newArrayList();
+        if (Objects.isNull(keyValues) || keyValues.size() == 0) {
+            return;
+        }
+        int recordPosition = this.headerSize;
+        for (KeyValue keyValue : keyValues) {
+            Record record = new Record(keyValue, recordPosition);
+            // 下一个节点应该所处的位置
+            recordPosition += record.getTotalLen();
+            this.records.add(record);
+        }
+        // 剩余可用的位置
+        this.free = recordPosition;
     }
 
     /**
-     * 从Page中读取Node相关的数据
+     * todo
+     * @return
      */
-    private void readPage() {
+    public ByteBuffer byteBuffer() {
+        ByteBuffer buffer = ByteBuffer.allocate(16 * 1024);
+        buffer.putLong(this.position);
+        buffer.putInt(this.pageSize);
+        buffer.putLong(this.parent);
+        buffer.putLong(this.previous);
+        buffer.putLong(this.next);
+        buffer.putInt(this.headerSize);
+        buffer.putInt(this.childrenSize);
+        buffer.putLong(this.pageNo);
+        buffer.putInt(this.free);
+        buffer.putInt(this.childrenNum);
+        buffer.put((byte) (this.isRoot ? 1 : 0));
+        buffer.put((byte) (this.isLeaf ? 1 : 0));
+        buffer.put((byte) (this.isFull ? 1 : 0));
+        buffer.position(this.headerSize);
+        // todo children指针
 
+        // todo 值
+        return buffer;
     }
 
     public TreeNode getNode() {
         return node;
+    }
+
+    public List<Record> getRecords() {
+        return records;
+    }
+
+    public void setRecords(List<Record> records) {
+        this.records = records;
+    }
+
+    public List<Long> getChildren() {
+        return this.children;
+    }
+
+    public long getParent() {
+        return parent;
+    }
+
+    public void setParent(long parent) {
+        this.parent = parent;
+    }
+
+    public long getPrevious() {
+        return previous;
+    }
+
+    public void setPrevious(long previous) {
+        this.previous = previous;
+    }
+
+    public long getNext() {
+        return next;
+    }
+
+    public void setNext(long next) {
+        this.next = next;
+    }
+
+    public boolean isFull() {
+        if (free >= pageSize) {
+            isFull = true;
+        } else {
+            isFull = false;
+        }
+        return isFull;
+    }
+
+    public void setFull(boolean full) {
+        isFull = full;
+    }
+
+    public long getPosition() {
+        return position;
+    }
+
+    public void setPosition(long position) {
+        this.position = position;
     }
 }

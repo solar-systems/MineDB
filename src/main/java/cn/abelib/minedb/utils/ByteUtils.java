@@ -113,4 +113,15 @@ public class ByteUtils {
         }
         return ByteUtils.bytes2UTF8(bytes);
     }
+
+    public static byte[] toBytes(ByteBuffer buffer, int len) {
+        if (buffer.remaining() < len) {
+            return new byte[0];
+        }
+        byte[] bytes = new byte[len];
+        for (int i = 0; i < len; i ++) {
+            bytes[i] = buffer.get();
+        }
+        return bytes;
+    }
 }
