@@ -55,7 +55,6 @@ public class Record {
     }
 
     public Record(ByteBuffer buffer) {
-        buffer.flip();
         this.position = buffer.getInt();
         this.totalLen = buffer.getInt();
         this.keySize = buffer.getInt();
@@ -63,7 +62,6 @@ public class Record {
         this.valueSize = buffer.getInt();
         this.value = ByteUtils.toBytes(buffer, valueSize);
     }
-
 
     /**
      * 返回每个记录的ByteBuffer对象

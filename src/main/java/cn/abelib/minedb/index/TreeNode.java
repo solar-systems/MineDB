@@ -97,6 +97,7 @@ public class TreeNode {
     }
 
     public TreeNode() {
+        this.conf = new Configuration();
 
     }
 

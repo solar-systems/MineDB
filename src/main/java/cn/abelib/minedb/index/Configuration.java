@@ -1,5 +1,8 @@
 package cn.abelib.minedb.index;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
 /**
  * @Author: abel.huang
  * @Date: 2020-10-23 23:57
@@ -10,38 +13,27 @@ public class Configuration {
      */
     private int pageSize;
     /**
-     * 关键字长度设置
-     */
-    private int keySize;
-    /**
-     * 值的长度
-     */
-    private int entrySize;
-    /**
-     * B+树扇出
-     */
-    private int degree;
-    /**
-     * 页头部长度
+     * 每个页头部大小，
+     * 会有部分空缺, 由配置文件决定
      */
     private int headerSize;
     /**
-     * 每个数据页
+     * 实际范围是[headerSize, headerSize + childrenSize]
+     * 子节点指针域大小，每个指针都是8个字节
+     * 可以支持的最大孩子数 = childrenSize / 8
      */
     private int childrenSize;
 
     private String dbName;
 
-    public Configuration(int degree) {
-        this(16 * 1024, 1024, 1024, degree, 1024);
+    public Configuration() {
+        this(16 * 1024, 1024, 1024);
     }
 
-    public Configuration(int pageSize, int keySize, int entrySize, int degree, int headerSize) {
+    public Configuration(int pageSize, int headerSize, int childrenSize) {
         this.pageSize = pageSize;
-        this.keySize = keySize;
-        this.entrySize = entrySize;
-        this.degree = degree;
         this.headerSize = headerSize;
+        this.childrenSize = childrenSize;
         this.dbName = "default.db";
     }
 
@@ -53,36 +45,20 @@ public class Configuration {
         this.pageSize = pageSize;
     }
 
-    public int getKeySize() {
-        return keySize;
-    }
-
-    public void setKeySize(int keySize) {
-        this.keySize = keySize;
-    }
-
-    public int getEntrySize() {
-        return entrySize;
-    }
-
-    public void setEntrySize(int entrySize) {
-        this.entrySize = entrySize;
-    }
-
-    public int getDegree() {
-        return degree;
-    }
-
-    public void setDegree(int degree) {
-        this.degree = degree;
-    }
-
     public int getHeaderSize() {
         return headerSize;
     }
 
     public void setHeaderSize(int headerSize) {
         this.headerSize = headerSize;
+    }
+
+    public int getChildrenSize() {
+        return childrenSize;
+    }
+
+    public void setChildrenSize(int childrenSize) {
+        this.childrenSize = childrenSize;
     }
 
     public String getDbName() {
@@ -93,11 +69,10 @@ public class Configuration {
         this.dbName = dbName;
     }
 
-    public int getChildrenSize() {
-        return childrenSize;
+    public Path getPath() {
+        return Paths.get(getDbName());
     }
 
-    public void setChildrenSize(int childrenSize) {
-        this.childrenSize = childrenSize;
-    }
 }
+
+

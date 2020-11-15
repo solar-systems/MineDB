@@ -1,5 +1,6 @@
 package cn.abelib.minedb.index;
 
+import cn.abelib.minedb.index.fs.PageLoader;
 import cn.abelib.minedb.utils.KeyValue;
 import org.apache.commons.lang3.StringUtils;
 
@@ -26,8 +27,8 @@ public class BalanceTree {
 
     private AtomicLong pageNo;
 
-    public BalanceTree(int degree) {
-        this.configuration = new Configuration(degree);
+    public BalanceTree() {
+        this.configuration = new Configuration();
     }
 
     public BalanceTree(Configuration configuration) throws IOException {
@@ -209,7 +210,12 @@ public class BalanceTree {
      */
     private void init() throws IOException {
         if (Objects.isNull(this.metaNode)) {
-            this.metaNode = new MetaNode(configuration);
+            if (PageLoader.existsMeta(configuration.getPath())) {
+                this.metaNode = PageLoader.readMeta(configuration);
+            } else {
+                this.metaNode = new MetaNode(configuration);
+                PageLoader.writeMeta(metaNode);
+            }
             this.pageNo = new AtomicLong(this.metaNode.getNextPage());
         }
         if (Objects.isNull(this.root)) {

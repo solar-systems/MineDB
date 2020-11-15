@@ -13,7 +13,6 @@ import java.util.Objects;
  * @Author: abel.huang
  * @Date: 2020-10-24 00:55
  * 磁盘中的页，与内存中的树节点对应
- *  todo
  */
 public class Page {
     /**
@@ -21,10 +20,6 @@ public class Page {
      * 页内地址都是基于当前地址的偏移量
      */
     private long position;
-    /**
-     * 页大小
-     */
-    private int pageSize;
     /**
      * 父节点指针
      */
@@ -37,17 +32,6 @@ public class Page {
      * 链表后继指针
      */
     private long next;
-    /**
-     * 每个页头部大小，
-     * 会有部分空缺, 由配置文件决定
-     */
-    private int headerSize;
-    /**
-     * 实际范围是[headerSize, headerSize + childrenSize]
-     * 子节点指针域大小，每个指针都是8个字节
-     * 可以支持的最大孩子数 = childrenSize / 8
-     */
-    private int childrenSize;
     /**
      * 当前页编号
      */
@@ -77,9 +61,14 @@ public class Page {
      */
     private boolean isFull;
     /**
+     * 记录数量
+     */
+    private int entrySize;
+    /**
      * 具体的记录值
      */
     private List<Record> records;
+    private List<KeyValue> keyValues;
     private TreeNode node;
     private Configuration conf;
 
@@ -89,7 +78,16 @@ public class Page {
      */
     public Page(TreeNode node) {
         this.node = node;
-        init();
+        this.conf = this.node.getConfiguration();
+        // 当前开始位置
+        this.position = this.node.getPosition();
+        // 父节点位置
+        this.parent = getNodePosition(this.node.getParent());
+        this.previous = getNodePosition(this.node.getPrevious());
+        this.next = getNodePosition(this.node.getNext());
+        this.pageNo = this.node.getPageNo();
+        this.keyValues = this.node.getKeyValues();
+        recordsProperties();
     }
 
     /**
@@ -98,27 +96,29 @@ public class Page {
      */
     public Page(ByteBuffer buffer) {
         this.children = Lists.newArrayList();
+        this.records = Lists.newArrayList();
         buffer.flip();
         this.position = buffer.getLong();
-        this.pageSize = buffer.getInt();
         this.parent = buffer.getLong();
         this.previous = buffer.getLong();
         this.next = buffer.getLong();
-        this.headerSize = buffer.getInt();
-        this.childrenSize = buffer.getInt();
         this.pageNo = buffer.getLong();
         this.free = buffer.getInt();
         this.childrenNum = buffer.getInt();
+        this.entrySize = buffer.getInt();
         this.isRoot = buffer.get() == 1;
         this.isLeaf = buffer.get() == 1;
         this.isFull = buffer.get() == 1;
-        buffer.position(this.headerSize);
+        buffer.position(conf.getHeaderSize());
         for (int i = 0; i < childrenNum; i++) {
             children.add(buffer.getLong());
         }
 
-        buffer.position(this.childrenSize);
-        // todo 读出record的值
+        buffer.position(conf.getChildrenSize());
+        for (int i = 0; i < entrySize; i ++) {
+            Record record = new Record(buffer);
+            records.add(record);
+        }
 
         this.node = new TreeNode();
         this.node.setPosition(position);
@@ -126,20 +126,6 @@ public class Page {
         this.node.setRoot(isRoot);
         this.node.setFull(isFull);
         this.node.setPageNo(pageNo);
-    }
-
-    private void init() {
-        this.conf = this.node.getConfiguration();
-        // 当前开始位置
-        this.position = this.node.getPosition();
-        // 父节点位置
-        this.parent = getNodePosition(this.node.getParent());
-        this.previous = getNodePosition(this.node.getPrevious());
-        this.next = getNodePosition(this.node.getNext());
-        this.headerSize = this.conf.getHeaderSize();
-        this.childrenSize = this.conf.getChildrenSize();
-        this.pageNo = this.node.getPageNo();
-        recordsProperties(this.node.getKeyValues());
     }
 
     private long getNodePosition(TreeNode node) {
@@ -152,15 +138,14 @@ public class Page {
     /**
      * 将keyValues转为List<Record>以及其他相关的属性,
      * 默认情况下所有结点内部数据从小到大排列
-     * @param keyValues
      * @return
      */
-    private void recordsProperties(List<KeyValue> keyValues) {
+    private void recordsProperties() {
         this.records = Lists.newArrayList();
         if (Objects.isNull(keyValues) || keyValues.size() == 0) {
             return;
         }
-        int recordPosition = this.headerSize;
+        int recordPosition = conf.getHeaderSize();
         for (KeyValue keyValue : keyValues) {
             Record record = new Record(keyValue, recordPosition);
             // 下一个节点应该所处的位置
@@ -169,31 +154,40 @@ public class Page {
         }
         // 剩余可用的位置
         this.free = recordPosition;
+        this.entrySize = records.size();
     }
 
     /**
-     * todo
+     * Page转为字节
      * @return
      */
     public ByteBuffer byteBuffer() {
-        ByteBuffer buffer = ByteBuffer.allocate(16 * 1024);
+        ByteBuffer buffer = ByteBuffer.allocate(conf.getPageSize());
         buffer.putLong(this.position);
-        buffer.putInt(this.pageSize);
         buffer.putLong(this.parent);
         buffer.putLong(this.previous);
         buffer.putLong(this.next);
-        buffer.putInt(this.headerSize);
-        buffer.putInt(this.childrenSize);
         buffer.putLong(this.pageNo);
         buffer.putInt(this.free);
         buffer.putInt(this.childrenNum);
+        buffer.putInt(this.entrySize);
         buffer.put((byte) (this.isRoot ? 1 : 0));
         buffer.put((byte) (this.isLeaf ? 1 : 0));
         buffer.put((byte) (this.isFull ? 1 : 0));
-        buffer.position(this.headerSize);
-        // todo children指针
+        // children指针
+        buffer.position(conf.getHeaderSize());
+        for (int i = 0; i < childrenNum; i ++) {
+            buffer.putLong(children.get(i));
+        }
+        // 存储到值中
+        buffer.position(conf.getChildrenSize());
+        int startPosition = conf.getChildrenSize();
+        for (int i = 0; i < entrySize; i ++) {
+            Record record = new Record(keyValues.get(i), startPosition);
+            startPosition += record.getTotalLen();
+            buffer.put(record.byteBuffer());
+        }
 
-        // todo 值
         return buffer;
     }
 
@@ -238,7 +232,7 @@ public class Page {
     }
 
     public boolean isFull() {
-        if (free >= pageSize) {
+        if (free >= conf.getPageSize()) {
             isFull = true;
         } else {
             isFull = false;

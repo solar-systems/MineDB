@@ -12,7 +12,7 @@ public class BalanceTreeTest {
 
     @Test
     public void initTest() throws IOException {
-        BalanceTree balanceTree = new BalanceTree(new Configuration(5));
+        BalanceTree balanceTree = new BalanceTree(new Configuration());
         balanceTree.getMetaNode();
     }
 }
