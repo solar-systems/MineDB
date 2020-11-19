@@ -27,7 +27,7 @@ public class Configuration {
     private String dbName;
 
     public Configuration() {
-        this(16 * 1024, 1024, 1024);
+        this(16 * 1024, 128, 1024);
     }
 
     public Configuration(int pageSize, int headerSize, int childrenSize) {

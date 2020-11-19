@@ -5,6 +5,7 @@ import cn.abelib.minedb.index.TreeNode;
 import cn.abelib.minedb.utils.KeyValue;
 import com.google.common.collect.Lists;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Objects;
@@ -57,10 +58,6 @@ public class Page {
      */
     private boolean isLeaf;
     /**
-     * 节点是否已经满了
-     */
-    private boolean isFull;
-    /**
      * 记录数量
      */
     private int entrySize;
@@ -69,6 +66,7 @@ public class Page {
      */
     private List<Record> records;
     private List<KeyValue> keyValues;
+    private List<TreeNode> childrenNodes;
     private TreeNode node;
     private Configuration conf;
 
@@ -76,7 +74,7 @@ public class Page {
      * 基于TreeNode
      * @param node
      */
-    public Page(TreeNode node) {
+    public Page(TreeNode node) throws IOException {
         this.node = node;
         this.conf = this.node.getConfiguration();
         // 当前开始位置
@@ -87,14 +85,16 @@ public class Page {
         this.next = getNodePosition(this.node.getNext());
         this.pageNo = this.node.getPageNo();
         this.keyValues = this.node.getKeyValues();
+        this.childrenNodes = this.node.getChildren();
         recordsProperties();
+        childrenProperties();
     }
 
     /**
      * 读取磁盘中的一个页
      * @param buffer
      */
-    public Page(ByteBuffer buffer) {
+    public Page(Configuration conf, ByteBuffer buffer) {
         this.children = Lists.newArrayList();
         this.records = Lists.newArrayList();
         buffer.flip();
@@ -108,7 +108,6 @@ public class Page {
         this.entrySize = buffer.getInt();
         this.isRoot = buffer.get() == 1;
         this.isLeaf = buffer.get() == 1;
-        this.isFull = buffer.get() == 1;
         buffer.position(conf.getHeaderSize());
         for (int i = 0; i < childrenNum; i++) {
             children.add(buffer.getLong());
@@ -124,8 +123,8 @@ public class Page {
         this.node.setPosition(position);
         this.node.setLeaf(isLeaf);
         this.node.setRoot(isRoot);
-        this.node.setFull(isFull);
         this.node.setPageNo(pageNo);
+        this.node.setReadFlag(true);
     }
 
     private long getNodePosition(TreeNode node) {
@@ -157,6 +156,16 @@ public class Page {
         this.entrySize = records.size();
     }
 
+    private void childrenProperties() {
+        this.children = Lists.newArrayList();
+        if (Objects.nonNull(this.childrenNodes) && this.childrenNodes.size() > 0) {
+            for (TreeNode node : this.childrenNodes) {
+                this.children.add(node.getPosition());
+            }
+        }
+        this.childrenNum = this.children.size();
+    }
+
     /**
      * Page转为字节
      * @return
@@ -173,7 +182,6 @@ public class Page {
         buffer.putInt(this.entrySize);
         buffer.put((byte) (this.isRoot ? 1 : 0));
         buffer.put((byte) (this.isLeaf ? 1 : 0));
-        buffer.put((byte) (this.isFull ? 1 : 0));
         // children指针
         buffer.position(conf.getHeaderSize());
         for (int i = 0; i < childrenNum; i ++) {
@@ -229,19 +237,6 @@ public class Page {
 
     public void setNext(long next) {
         this.next = next;
-    }
-
-    public boolean isFull() {
-        if (free >= conf.getPageSize()) {
-            isFull = true;
-        } else {
-            isFull = false;
-        }
-        return isFull;
-    }
-
-    public void setFull(boolean full) {
-        isFull = full;
     }
 
     public long getPosition() {

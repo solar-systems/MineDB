@@ -4,16 +4,24 @@ import cn.abelib.minedb.index.fs.Page;
 import cn.abelib.minedb.index.fs.PageLoader;
 import cn.abelib.minedb.utils.KeyValue;
 
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 /**
  * @Author: abel.huang
  * @Date: 2020-10-25 00:01
- * 内存中的节点
+ * 内存中的节点，
+ * 其中对于磁盘中的节点而言有四种类型：
+ *  1. isRoot = true; isLeaf = true => 仅有一个节点，即根节点
+ *  [headerSize, childrenSize] -> 指针域， [childrenSize, pageSize] -> 值域
+ *  2. isRoot = true; isLeaf = false => 多个节点时候的根节点
+ *  [headerSize, pageSize]-> 指针域
+ *  3. isRoot = false; isLeaf = false => 多个节点时候的索引节点
+ *  [headerSize, pageSize] -> 指针域
+ *  4. isRoot = false; isLeaf = false => 多个节点时候的叶子节点
+ *  [headerSize, pageSize] -> 值域
  */
 public class TreeNode {
     /**
@@ -49,17 +57,9 @@ public class TreeNode {
      */
     private List<KeyValue> keyValues;
     /**
-     * 该页当前记录数量
-     */
-    private int entrySize;
-    /**
      * 子节点
      */
     private List<TreeNode> children;
-    /**
-     * 该叶节点是否已经满
-     */
-    private boolean isFull;
     /**
      * 该节点是否已经删除
      */
@@ -69,6 +69,10 @@ public class TreeNode {
      */
     private boolean isDirty;
     /**
+     * 当前总字节数
+     */
+    private int total;
+    /**
      * 对应磁盘的页
      */
     private Page page;
@@ -77,11 +81,10 @@ public class TreeNode {
      */
     private Configuration conf;
 
-    private Path path;
+    private boolean readFlag;
 
-    public TreeNode(Configuration conf, boolean isLeaf, boolean isRoot, long pageNo) {
+    public TreeNode(Configuration conf, boolean isLeaf, boolean isRoot, long pageNo) throws IOException {
         this.conf = conf;
-        this.path = Paths.get(conf.getDbName());
         this.isLeaf = isLeaf;
         this.isRoot = isRoot;
         this.pageNo = pageNo;
@@ -89,16 +92,15 @@ public class TreeNode {
         this.next = null;
         this.previous = null;
         this.keyValues = new ArrayList<>();
-        this.entrySize = 0;
         this.children = new ArrayList<>();
-        this.isFull = false;
         this.isDeleted = false;
+        this.readFlag = false;
+        this.total = 0;
         this.page = new Page(this);
     }
 
     public TreeNode() {
         this.conf = new Configuration();
-
     }
 
     public boolean isDirty() {
@@ -116,6 +118,22 @@ public class TreeNode {
         } else {
             GlobalPageCache.putCleanPage(this);
         }
+    }
+
+    public void addTotal(int addition) {
+        this.total += addition;
+    }
+
+    public void setTotal(int total) {
+        this.total = total;
+    }
+
+    public int getTotal() {
+        return this.total;
+    }
+
+    public ByteBuffer byteBuffer() {
+        return page.byteBuffer();
     }
 
     public boolean isLeaf() {
@@ -154,7 +172,11 @@ public class TreeNode {
      * 获得当前结点的父节点
      * @return
      */
-    public TreeNode getParent() {
+    public TreeNode getParent() throws IOException {
+        if (readFlag) {
+            long parentPos = this.getPage().getParent();
+            setPrevious(PageLoader.loadTreeNode(conf, parentPos));
+        }
         return parent;
     }
 
@@ -162,9 +184,10 @@ public class TreeNode {
         this.parent = parent;
     }
 
-    public TreeNode getPrevious() {
-        if (Objects.isNull(previous)) {
-            setPrevious(PageLoader.loadTreeNode(conf, this.page.getPrevious()));
+    public TreeNode getPrevious() throws IOException {
+        if (readFlag) {
+            long previousPos = this.getPage().getPrevious();
+            setPrevious(PageLoader.loadTreeNode(conf, previousPos));
         }
         return previous;
     }
@@ -173,9 +196,10 @@ public class TreeNode {
         this.previous = previous;
     }
 
-    public TreeNode getNext() {
-        if (Objects.isNull(next)) {
-            setNext(PageLoader.loadTreeNode(conf, this.page.getNext()));
+    public TreeNode getNext() throws IOException {
+        if (readFlag) {
+            long nextPos = this.getPage().getNext();
+            setPrevious(PageLoader.loadTreeNode(conf, nextPos));
         }
         return next;
     }
@@ -188,27 +212,17 @@ public class TreeNode {
      * 从磁盘加载子节点
      * @return
      */
-    public List<TreeNode> getChildren() {
-        List<Long> childrenPointers = this.getPage().getChildren();
-        setChildren(PageLoader.loadTreeNodes(conf, childrenPointers));
+    public List<TreeNode> getChildren() throws IOException {
+        if (readFlag) {
+            List<Long> childrenPointers = this.getPage().getChildren();
+            setChildren(PageLoader.loadTreeNodes(conf, childrenPointers));
+        }
+
         return children;
     }
 
     public void setChildren(List<TreeNode> children) {
         this.children = children;
-    }
-
-    /**
-     * todo, 需要判断该节点磁盘空间是否已经满了
-     * 判断是否需要进行分裂
-     * @return
-     */
-    public boolean isFull() {
-        return isFull;
-    }
-
-    public void setFull(boolean full) {
-        isFull = full;
     }
 
     public boolean isDeleted() {
@@ -237,5 +251,13 @@ public class TreeNode {
 
     public Configuration getConfiguration() {
         return conf;
+    }
+
+    public boolean isReadFlag() {
+        return readFlag;
+    }
+
+    public void setReadFlag(boolean readFlag) {
+        this.readFlag = readFlag;
     }
 }

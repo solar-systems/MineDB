@@ -1,7 +1,6 @@
 package cn.abelib.minedb.index;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 /**
  * @Author: abel.huang
@@ -36,10 +35,8 @@ public class MetaNode {
      * 子节点指针大小
      */
     private int childrenSize;
-    /**
-     * 根节点
-     */
-    private TreeNode root;
+
+    private int pageSize;
 
     private Configuration conf;
 
@@ -48,11 +45,16 @@ public class MetaNode {
     public MetaNode(Configuration conf){
         this.totalPage = 0;
         this.nextPage = 0;
-        this.path = Paths.get(conf.getDbName());
         this.conf = conf;
+        this.path = conf.getPath();
+        this.pageSize = conf.getPageSize();
+        this.headerSize = conf.getHeaderSize();
+        this.childrenSize = conf.getChildrenSize();
     }
 
-    public MetaNode() {}
+    public MetaNode() {
+
+    }
 
     public long getTotalPage() {
         return totalPage;
@@ -76,6 +78,7 @@ public class MetaNode {
 
     public void setConfiguration(Configuration configuration) {
         this.conf = configuration;
+        this.path = conf.getPath();
     }
 
     public long getNextPage() {
@@ -99,6 +102,29 @@ public class MetaNode {
     }
 
     public int getPageSize() {
-        return conf.getPageSize();
+        return this.pageSize;
+    }
+
+    public int getHeaderSize() {
+        return headerSize;
+    }
+
+    public int getChildrenSize() {
+        return childrenSize;
+    }
+
+    public void setHeaderSize(int headerSize) {
+        this.headerSize = headerSize;
+        this.conf.setHeaderSize(getHeaderSize());
+    }
+
+    public void setPageSize(int pageSize) {
+        this.pageSize = pageSize;
+        this.conf.setPageSize(getPageSize());
+    }
+
+    public void setChildrenSize(int childrenSize) {
+        this.childrenSize = childrenSize;
+        this.conf.setChildrenSize(getChildrenSize());
     }
 }

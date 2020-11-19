@@ -17,6 +17,9 @@ public class PageUtils {
      * @return
      */
     public static int binarySearchForIndex(KeyValue entry, List<KeyValue> keyValues) {
+        if (keyValues.size() <= 0) {
+            return 0;
+        }
         int left = 0;
         int right = keyValues.size() - 1;
         int mid;
@@ -76,5 +79,62 @@ public class PageUtils {
      */
     public static int midIndex(TreeNode curr) {
         return 0;
+    }
+
+    /**
+     * todo 判断叶子节点是否已经满了
+     * @param node
+     * @return
+     */
+    public static boolean isFull(TreeNode node) {
+        NodeType type = nodeType(node);
+        if (type == NodeType.SPECIAL_NODE) {
+            // 需要考虑指针域和值域溢出
+
+        } else if (type == NodeType.ROOT_NODE) {
+            // 需要考虑指针域溢出
+
+        } else if (type == NodeType.LEAF_NODE) {
+            // 需要考虑值域溢出
+
+        } else if (type == NodeType.INDEX_NODE) {
+            // 需要考虑指针域溢出
+
+        }
+        return false;
+    }
+
+    public static NodeType nodeType(TreeNode node) {
+        boolean isRoot = node.isRoot();
+        boolean isLeaf = node.isLeaf();
+
+        if (isRoot && isLeaf) {
+            return NodeType.SPECIAL_NODE;
+        } else if (isRoot && !isLeaf) {
+            return NodeType.ROOT_NODE;
+        } else if (!isRoot && isLeaf) {
+            return NodeType.LEAF_NODE;
+        } else {
+            return NodeType.INDEX_NODE;
+        }
+    }
+
+    protected enum NodeType {
+        /**
+         * 根节点
+         */
+        ROOT_NODE,
+        /**
+         * 叶节点
+         */
+        LEAF_NODE,
+        /**
+         * 索引节点
+         */
+        INDEX_NODE,
+        /**
+         * 唯一根节点
+         */
+        SPECIAL_NODE
     }
 }

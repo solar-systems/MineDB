@@ -1,6 +1,8 @@
 package cn.abelib.minedb.index;
 
-import java.util.Map;
+import com.google.common.collect.Maps;
+
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * @Author: abel.huang
@@ -8,8 +10,13 @@ import java.util.Map;
  * 全局页缓存
  */
 public class GlobalPageCache {
-    private static Map<Long, TreeNode> dirtyPages;
-    private static Map<Long, TreeNode> cleanPages;
+    private static ConcurrentMap<Long, TreeNode> dirtyPages;
+    private static ConcurrentMap<Long, TreeNode> cleanPages;
+
+    static {
+        dirtyPages = Maps.newConcurrentMap();
+        cleanPages = Maps.newConcurrentMap();
+    }
 
     /**
      * 基于页码获得已经在缓存中的页

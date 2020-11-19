@@ -4,6 +4,7 @@ import cn.abelib.minedb.index.Configuration;
 import cn.abelib.minedb.index.MetaNode;
 import cn.abelib.minedb.index.TreeNode;
 import cn.abelib.minedb.utils.ByteUtils;
+import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
@@ -81,32 +82,48 @@ public class PageLoader {
                 || meta.getMinorVersion() != buffer.getShort()) {
             throw new IllegalArgumentException("Invalid version file!");
         }
-        conf.setPageSize(buffer.getInt());
+        meta.setConfiguration(conf);
+        meta.setPageSize(buffer.getInt());
         meta.setTotalPage(buffer.getLong());
         meta.setNextPage(buffer.getLong());
 
-        conf.setHeaderSize(buffer.getInt());
-        conf.setChildrenSize(buffer.getInt());
+        meta.setHeaderSize(buffer.getInt());
+        meta.setChildrenSize(buffer.getInt());
         channel.close();
-        meta.setConfiguration(conf);
         return meta;
     }
 
-    public static Page loadPage(Configuration conf, long postition) {
-
-        return null;
+    public static Page loadPage(Configuration conf, long position) throws IOException {
+        FileChannel channel = FileChannel.open(conf.getPath(), StandardOpenOption.READ);
+        channel.position(position);
+        ByteBuffer buffer = ByteBuffer.allocate(conf.getPageSize());
+        channel.read(buffer);
+        channel.close();
+        return new Page(conf, buffer);
     }
 
-    public static TreeNode loadTreeNode(Configuration conf, long postition) {
-
-        return null;
+    public static TreeNode loadTreeNode(Configuration conf, long position) throws IOException {
+        Page page = loadPage(conf, position);
+        return page.getNode();
     }
 
-    public static List<Page> loadPages(Configuration conf, List<Long> postitions) {
-        return null;
+    public static List<TreeNode> loadTreeNodes(Configuration conf, List<Long> positions) throws IOException {
+        List<TreeNode> nodes = Lists.newArrayList();
+        for (int i = 0; i < positions.size(); i++) {
+            TreeNode node = loadTreeNode(conf, positions.get(i));
+            nodes.add(node);
+        }
+        return nodes;
     }
 
-    public static List<TreeNode> loadTreeNodes(Configuration conf, List<Long> postitions) {
-        return null;
+    public static void writePage(TreeNode node) throws IOException {
+        Configuration conf = node.getConfiguration();
+        FileChannel channel = FileChannel.open(conf.getPath(), StandardOpenOption.WRITE);
+        channel.position(node.getPosition());
+        ByteBuffer buffer = node.byteBuffer();
+        buffer.flip();
+        channel.write(buffer);
+        channel.force(true);
+        channel.close();
     }
 }

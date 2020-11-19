@@ -44,7 +44,7 @@ public class BalanceTree {
         }
         KeyValue entry = new KeyValue(key, value);
         // 当前仅有根节点
-        if (getRoot().getChildren().isEmpty()) {
+        if (getRoot().getChildren().isEmpty() && !PageUtils.isFull(getRoot())) {
             insert(entry, getRoot());
         }
         // 当前根节点已有子节点
@@ -54,7 +54,7 @@ public class BalanceTree {
                 curr = curr.getChildren().get(PageUtils.binarySearchForIndex(entry, curr.getKeyValues()));
             }
             insert(entry, curr);
-            if (curr.isFull()) {
+            if (PageUtils.isFull(curr)) {
                 split(curr);
             }
         }
@@ -64,7 +64,7 @@ public class BalanceTree {
      * 节点分裂, 在磁盘B+树中只有磁盘页使用达到上限时才会
      * @param node
      */
-    private void split(TreeNode node) {
+    private void split(TreeNode node) throws IOException {
         int mid = PageUtils.midIndex(node);
         TreeNode middleNode = new TreeNode(this.configuration, true, false, pageNo.getAndIncrement());
         TreeNode rightNode = new TreeNode(this.configuration, true, false, pageNo.getAndIncrement());
@@ -90,7 +90,7 @@ public class BalanceTree {
      * @param insertingNode
      * @param first
      */
-    private void split(TreeNode curr, TreeNode prev, TreeNode insertingNode, boolean first) {
+    private void split(TreeNode curr, TreeNode prev, TreeNode insertingNode, boolean first) throws IOException {
         if (curr == null) {
             this.root = insertingNode;
             int indexForPrev = PageUtils.binarySearchForIndex (prev.getKeyValues().get(0), insertingNode.getKeyValues());
@@ -110,7 +110,7 @@ public class BalanceTree {
         else {
             promote(insertingNode, curr);
             // 如果合并后的节点已经满了
-            if (curr.isFull()) {
+            if (PageUtils.isFull(curr)) {
                 int mid = PageUtils.midIndex(curr);
                 TreeNode middleNode = new TreeNode(this.configuration, true, false, pageNo.getAndIncrement());
                 TreeNode rightNode = new TreeNode(this.configuration, true, false, pageNo.getAndIncrement());
@@ -153,7 +153,7 @@ public class BalanceTree {
      * @param mergeFrom
      * @param mergeInto
      */
-    private void promote(TreeNode mergeFrom, TreeNode mergeInto) {
+    private void promote(TreeNode mergeFrom, TreeNode mergeInto) throws IOException {
         KeyValue keyValue = mergeFrom.getKeyValues().get(0);
         TreeNode childNode = mergeFrom.getChildren().get(0);
 
@@ -202,7 +202,6 @@ public class BalanceTree {
         } else {
             node.getKeyValues().add(index, entry);
         }
-        GlobalPageCache.putDirtyPage(node);
     }
 
     /**

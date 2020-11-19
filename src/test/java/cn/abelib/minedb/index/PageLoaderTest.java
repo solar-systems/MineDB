@@ -29,4 +29,5 @@ public class PageLoaderTest {
         MetaNode metaNode = PageLoader.readMeta(configuration);
         System.err.println(metaNode);
     }
+
 }
