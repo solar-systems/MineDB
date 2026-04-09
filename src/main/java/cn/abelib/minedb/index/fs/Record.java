@@ -6,52 +6,44 @@ import cn.abelib.minedb.utils.KeyValue;
 import java.nio.ByteBuffer;
 
 /**
+ * 磁盘记录结构
+ *
  * @Author: abel.huang
- * @Date: 2020-11-03 23:37
+ * @Date: 2020-11-15 00:17
  */
 public class Record {
-    /**
-     * 记录地址
-     */
+    private static final byte OVERFLOW_FLAG = 1;
+
     private int position;
-    /**
-     * 当前记录总长度
-     */
     private int totalLen;
-    /**
-     * 键长度
-     */
     private int keySize;
-    /**
-     * 键
-     */
     private byte[] key;
-    /**
-     * 值长度
-     */
     private int valueSize;
-    /**
-     * 值
-     */
     private byte[] value;
+    private boolean overflow;
+    private long overflowPage;
 
     public Record() {}
 
-    /**
-     *
-     * @param keyValue
-     * @param position
-     */
     public Record(KeyValue keyValue, int position) {
-        // position + totalLen + keySize + valueSize = 4 * 4 = 16
-        this.totalLen = 16;
+        this(keyValue, position, false, 0);
+    }
+
+    public Record(KeyValue keyValue, int position, boolean overflow, long overflowPage) {
         this.position = position;
         this.key = ByteUtils.getBytesUTF8(keyValue.getKey());
         this.keySize = key.length;
-        this.totalLen += keySize;
         this.value = ByteUtils.getBytesUTF8(keyValue.getValue());
         this.valueSize = value.length;
-        this.totalLen += valueSize;
+        this.overflow = overflow;
+        this.overflowPage = overflowPage;
+
+        this.totalLen = 16 + keySize + 4; // header + key + valueSize
+        if (overflow) {
+            this.totalLen += 9; // overflow flag + overflow page
+        } else {
+            this.totalLen += valueSize;
+        }
     }
 
     public Record(ByteBuffer buffer) {
@@ -60,13 +52,20 @@ public class Record {
         this.keySize = buffer.getInt();
         this.key = ByteUtils.toBytes(buffer, keySize);
         this.valueSize = buffer.getInt();
-        this.value = ByteUtils.toBytes(buffer, valueSize);
+
+        // Check if overflow
+        if (buffer.remaining() > 0 && buffer.get(buffer.position()) == OVERFLOW_FLAG) {
+            this.overflow = true;
+            buffer.get(); // skip overflow flag
+            this.overflowPage = buffer.getLong();
+            this.value = new byte[0];
+        } else {
+            this.overflow = false;
+            this.overflowPage = 0;
+            this.value = ByteUtils.toBytes(buffer, valueSize);
+        }
     }
 
-    /**
-     * 返回每个记录的ByteBuffer对象
-     * @return
-     */
     public ByteBuffer byteBuffer() {
         ByteBuffer buffer = ByteBuffer.allocate(totalLen);
         buffer.putInt(position);
@@ -74,55 +73,43 @@ public class Record {
         buffer.putInt(keySize);
         buffer.put(key);
         buffer.putInt(valueSize);
-        buffer.put(value);
+        if (overflow) {
+            buffer.put(OVERFLOW_FLAG);
+            buffer.putLong(overflowPage);
+        } else {
+            buffer.put(value);
+        }
+        buffer.flip();
         return buffer;
     }
 
-    public int getPosition() {
-        return position;
+    public static int getFixedHeaderSize() {
+        return 16; // position(4) + totalLen(4) + keySize(4) + valueSize(4)
     }
 
-    public void setPosition(int position) {
-        this.position = position;
+    public static int getOverflowOverhead() {
+        return 9; // overflow flag(1) + overflow page(8)
     }
 
-    public int getTotalLen() {
-        return totalLen;
+    public static int calculateRecordSize(int keySize, int valueSize, boolean overflow) {
+        int size = getFixedHeaderSize() + keySize + 4; // header + key + valueSize
+        if (overflow) {
+            size += getOverflowOverhead();
+        } else {
+            size += valueSize;
+        }
+        return size;
     }
 
-    public void setTotalLen(int totalLen) {
-        this.totalLen = totalLen;
-    }
-
-    public int getKeySize() {
-        return keySize;
-    }
-
-    public void setKeySize(int keySize) {
-        this.keySize = keySize;
-    }
-
-    public byte[] getKey() {
-        return key;
-    }
-
-    public void setKey(byte[] key) {
-        this.key = key;
-    }
-
-    public int getValueSize() {
-        return valueSize;
-    }
-
-    public void setValueSize(int valueSize) {
-        this.valueSize = valueSize;
-    }
-
-    public byte[] getValue() {
-        return value;
-    }
-
-    public void setValue(byte[] value) {
-        this.value = value;
-    }
+    // Getters and Setters
+    public int getPosition() { return position; }
+    public void setPosition(int position) { this.position = position; }
+    public int getTotalLen() { return totalLen; }
+    public void setTotalLen(int totalLen) { this.totalLen = totalLen; }
+    public int getKeySize() { return keySize; }
+    public byte[] getKey() { return key; }
+    public int getValueSize() { return valueSize; }
+    public byte[] getValue() { return value; }
+    public boolean isOverflow() { return overflow; }
+    public long getOverflowPage() { return overflowPage; }
 }

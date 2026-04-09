@@ -1,10 +1,16 @@
 package cn.abelib.minedb.index;
 
+import cn.abelib.minedb.index.fs.OverFlowPage;
+import cn.abelib.minedb.index.fs.Record;
+import cn.abelib.minedb.utils.ByteUtils;
 import cn.abelib.minedb.utils.KeyValue;
 
+import java.io.IOException;
 import java.util.List;
 
 /**
+ * 页面工具类
+ *
  * @Author: abel.huang
  * @Date: 2020-11-07 15:36
  */
@@ -12,9 +18,6 @@ public class PageUtils {
 
     /**
      * 找到entry应该所处于的位置
-     * @param entry
-     * @param keyValues
-     * @return
      */
     public static int binarySearchForIndex(KeyValue entry, List<KeyValue> keyValues) {
         if (keyValues.size() <= 0) {
@@ -48,9 +51,6 @@ public class PageUtils {
 
     /**
      * 标准的二分搜索算法，没有查找到则返回-1
-     * @param entry
-     * @param keyValues
-     * @return
      */
     public static int binarySearch(KeyValue entry, List<KeyValue> keyValues) {
         int left = 0;
@@ -72,36 +72,142 @@ public class PageUtils {
     }
 
     /**
-     * todo
-     * 找到TreeNode的中间节点
-     * @param curr
-     * @return
+     * 找到TreeNode的中间节点索引
      */
     public static int midIndex(TreeNode curr) {
-        return 0;
+        int size = curr.getKeyValues().size();
+        if (size <= 0) {
+            return 0;
+        }
+        return size / 2;
     }
 
     /**
-     * todo 判断叶子节点是否已经满了
-     * @param node
-     * @return
+     * 判断叶子节点是否已经满了
      */
     public static boolean isFull(TreeNode node) {
-        NodeType type = nodeType(node);
-        if (type == NodeType.SPECIAL_NODE) {
-            // 需要考虑指针域和值域溢出
-
-        } else if (type == NodeType.ROOT_NODE) {
-            // 需要考虑指针域溢出
-
-        } else if (type == NodeType.LEAF_NODE) {
-            // 需要考虑值域溢出
-
-        } else if (type == NodeType.INDEX_NODE) {
-            // 需要考虑指针域溢出
-
+        if (node == null) {
+            return false;
         }
-        return false;
+
+        try {
+            NodeType type = nodeType(node);
+            Configuration conf = node.getConfiguration();
+            int usedSpace = calculateUsedSpace(node);
+            int pageSize = conf.getPageSize();
+            int headerSize = conf.getHeaderSize();
+            int availableSpace = pageSize - headerSize;
+
+            switch (type) {
+                case SPECIAL_NODE:
+                    // 唯一根节点，需要考虑键值域和指针域
+                    return usedSpace >= availableSpace * 0.75;
+                case ROOT_NODE:
+                case INDEX_NODE:
+                    // 根节点和索引节点，主要考虑指针域
+                    int childCount = node.getChildren().size();
+                    int maxChildren = conf.getChildrenSize() / 8;
+                    return childCount >= maxChildren;
+                case LEAF_NODE:
+                    // 叶子节点，考虑数据域
+                    return usedSpace >= availableSpace;
+                default:
+                    return false;
+            }
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /**
+     * 计算记录的磁盘大小
+     */
+    public static int calculateRecordSize(KeyValue keyValue) {
+        if (keyValue == null) {
+            return 0;
+        }
+        byte[] keyBytes = ByteUtils.getBytesUTF8(keyValue.getKey());
+        byte[] valueBytes = ByteUtils.getBytesUTF8(keyValue.getValue());
+        return Record.calculateRecordSize(keyBytes.length, valueBytes.length, false);
+    }
+
+    /**
+     * 计算节点已使用的空间
+     */
+    public static int calculateUsedSpace(TreeNode node) {
+        if (node == null) {
+            return 0;
+        }
+
+        int totalSize = 0;
+        List<KeyValue> keyValues = node.getKeyValues();
+
+        for (KeyValue kv : keyValues) {
+            totalSize += calculateRecordSize(kv);
+        }
+
+        // 添加指针域（非叶子节点）
+        try {
+            if (!node.isLeaf() && node.getChildren() != null) {
+                totalSize += node.getChildren().size() * 8;
+            }
+        } catch (IOException e) {
+            // 忽略IO异常
+        }
+
+        return totalSize;
+    }
+
+    /**
+     * 获取页面可用数据空间
+     */
+    public static int getAvailableDataSpace(Configuration conf) {
+        return conf.getPageSize() - conf.getHeaderSize();
+    }
+
+    /**
+     * 判断记录是否需要溢出存储
+     */
+    public static boolean needOverflow(Configuration conf, KeyValue keyValue) {
+        if (keyValue == null) {
+            return false;
+        }
+
+        byte[] keyBytes = ByteUtils.getBytesUTF8(keyValue.getKey());
+        byte[] valueBytes = ByteUtils.getBytesUTF8(keyValue.getValue());
+
+        // 计算记录大小
+        int recordSize = Record.calculateRecordSize(keyBytes.length, valueBytes.length, false);
+
+        // 获取可用空间
+        int availableSpace = getAvailableDataSpace(conf);
+
+        return recordSize > availableSpace;
+    }
+
+    /**
+     * 计算溢出记录的磁盘大小
+     * 溢出记录不存储完整value，只存储溢出标记和溢出页指针
+     */
+    public static int calculateOverflowRecordSize(KeyValue keyValue) {
+        if (keyValue == null) {
+            return 0;
+        }
+        byte[] keyBytes = ByteUtils.getBytesUTF8(keyValue.getKey());
+        // 溢出记录：header + key + valueSize + overflow flag + overflow page
+        return Record.calculateRecordSize(keyBytes.length, 0, true);
+    }
+
+    /**
+     * 计算存储指定KeyValue需要的溢出页数量
+     */
+    public static int calculateOverflowPageCount(Configuration conf, KeyValue keyValue) {
+        if (keyValue == null) {
+            return 0;
+        }
+
+        byte[] valueBytes = ByteUtils.getBytesUTF8(keyValue.getValue());
+        return OverFlowPage.calculateOverflowPageCount(conf, valueBytes.length);
     }
 
     public static NodeType nodeType(TreeNode node) {
@@ -120,21 +226,13 @@ public class PageUtils {
     }
 
     protected enum NodeType {
-        /**
-         * 根节点
-         */
+        /** 根节点 */
         ROOT_NODE,
-        /**
-         * 叶节点
-         */
+        /** 叶节点 */
         LEAF_NODE,
-        /**
-         * 索引节点
-         */
+        /** 索引节点 */
         INDEX_NODE,
-        /**
-         * 唯一根节点
-         */
+        /** 唯一根节点 */
         SPECIAL_NODE
     }
 }

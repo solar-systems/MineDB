@@ -16,10 +16,10 @@ import java.nio.file.StandardOpenOption;
 import java.util.List;
 
 /**
+ * 磁盘页加载器
+ *
  * @Author: abel.huang
- * @Date: 2020-10-26 23:42
- * 从磁盘中加载页
- * todo
+ * @Date: 2020-10-25 00:50
  */
 public class PageLoader {
 
@@ -27,45 +27,55 @@ public class PageLoader {
         return Files.exists(path);
     }
 
-    /**
-     * MAGIC_NUMBER
-     * 写入磁盘文件
-     */
     public static void writeMeta(MetaNode meta) throws IOException {
         Path path = meta.getPath();
         Configuration conf = meta.getConfiguration();
+        // Delete existing file if present to allow overwriting
+        if (Files.exists(path)) {
+            Files.delete(path);
+        }
         Files.createFile(path);
         FileChannel channel = FileChannel.open(path, StandardOpenOption.WRITE);
         channel.position(0);
         ByteBuffer buffer = ByteBuffer.allocate(conf.getPageSize());
-        // 6B
         buffer.put(ByteUtils.getBytesUTF8(meta.getMAGIC()));
-        // 2B
         buffer.putShort(meta.getMajorVersion());
-        // 2B
         buffer.putShort(meta.getMinorVersion());
-        // 4B
         buffer.putInt(conf.getPageSize());
-        // 8B
         buffer.putLong(meta.getTotalPage());
-        // 8B
         buffer.putLong(meta.getNextPage());
-        // 4B
+        buffer.putLong(meta.getRootPosition());
+        buffer.putLong(meta.getEntryCount());
         buffer.putInt(conf.getHeaderSize());
-        // 4B
         buffer.putInt(conf.getChildrenSize());
-        // total = 38B
         buffer.flip();
         channel.write(buffer);
         channel.force(true);
         channel.close();
     }
 
-    /**
-     * 加载元数据节点
-     * @param conf
-     * @return
-     */
+    public static void updateMeta(MetaNode meta) throws IOException {
+        Path path = meta.getPath();
+        Configuration conf = meta.getConfiguration();
+        FileChannel channel = FileChannel.open(path, StandardOpenOption.WRITE);
+        channel.position(0);
+        ByteBuffer buffer = ByteBuffer.allocate(conf.getPageSize());
+        buffer.put(ByteUtils.getBytesUTF8(meta.getMAGIC()));
+        buffer.putShort(meta.getMajorVersion());
+        buffer.putShort(meta.getMinorVersion());
+        buffer.putInt(conf.getPageSize());
+        buffer.putLong(meta.getTotalPage());
+        buffer.putLong(meta.getNextPage());
+        buffer.putLong(meta.getRootPosition());
+        buffer.putLong(meta.getEntryCount());
+        buffer.putInt(conf.getHeaderSize());
+        buffer.putInt(conf.getChildrenSize());
+        buffer.flip();
+        channel.write(buffer);
+        channel.force(true);
+        channel.close();
+    }
+
     public static MetaNode readMeta(Configuration conf) throws IOException {
         Path path = conf.getPath();
         MetaNode meta = new MetaNode();
@@ -78,17 +88,22 @@ public class PageLoader {
         if (!StringUtils.equals(magic, meta.getMAGIC())) {
             throw new IllegalArgumentException("Invalid disk file!");
         }
-        if (meta.getMajorVersion() != buffer.getShort()
-                || meta.getMinorVersion() != buffer.getShort()) {
-            throw new IllegalArgumentException("Invalid version file!");
-        }
+        buffer.getShort(); // majorVersion
+        buffer.getShort(); // minorVersion
         meta.setConfiguration(conf);
         meta.setPageSize(buffer.getInt());
         meta.setTotalPage(buffer.getLong());
         meta.setNextPage(buffer.getLong());
-
-        meta.setHeaderSize(buffer.getInt());
-        meta.setChildrenSize(buffer.getInt());
+        if (buffer.remaining() >= 8) {
+            meta.setRootPosition(buffer.getLong());
+        }
+        if (buffer.remaining() >= 8) {
+            meta.setEntryCount(buffer.getLong());
+        }
+        if (buffer.remaining() >= 8) {
+            meta.setHeaderSize(buffer.getInt());
+            meta.setChildrenSize(buffer.getInt());
+        }
         channel.close();
         return meta;
     }
@@ -104,14 +119,16 @@ public class PageLoader {
 
     public static TreeNode loadTreeNode(Configuration conf, long position) throws IOException {
         Page page = loadPage(conf, position);
-        return page.getNode();
+        TreeNode node = page.getNode();
+        node.setConfiguration(conf);
+        node.setPage(page);
+        return node;
     }
 
     public static List<TreeNode> loadTreeNodes(Configuration conf, List<Long> positions) throws IOException {
         List<TreeNode> nodes = Lists.newArrayList();
-        for (int i = 0; i < positions.size(); i++) {
-            TreeNode node = loadTreeNode(conf, positions.get(i));
-            nodes.add(node);
+        for (Long pos : positions) {
+            nodes.add(loadTreeNode(conf, pos));
         }
         return nodes;
     }
@@ -125,5 +142,58 @@ public class PageLoader {
         channel.write(buffer);
         channel.force(true);
         channel.close();
+    }
+
+    // ==================== 溢出页操作 ====================
+
+    /**
+     * 写入溢出页
+     */
+    public static void writeOverflowPage(OverFlowPage page) throws IOException {
+        Configuration conf = page.getConfiguration();
+        FileChannel channel = FileChannel.open(conf.getPath(), StandardOpenOption.WRITE);
+        channel.position(page.getPosition());
+        ByteBuffer buffer = page.byteBuffer();
+        channel.write(buffer);
+        channel.force(true);
+        channel.close();
+    }
+
+    /**
+     * 加载溢出页
+     */
+    public static OverFlowPage loadOverflowPage(Configuration conf, long position) throws IOException {
+        FileChannel channel = FileChannel.open(conf.getPath(), StandardOpenOption.READ);
+        channel.position(position);
+        ByteBuffer buffer = ByteBuffer.allocate(conf.getPageSize());
+        channel.read(buffer);
+        buffer.flip();
+        channel.close();
+        return new OverFlowPage(conf, buffer);
+    }
+
+    /**
+     * 加载溢出页链表中的所有页面
+     */
+    public static List<OverFlowPage> loadOverflowPageChain(Configuration conf, long startPosition) throws IOException {
+        List<OverFlowPage> pages = Lists.newArrayList();
+        long currentPos = startPosition;
+
+        while (currentPos > 0) {
+            OverFlowPage page = loadOverflowPage(conf, currentPos);
+            pages.add(page);
+            currentPos = page.getNextPage();
+        }
+
+        return pages;
+    }
+
+    /**
+     * 写入溢出页链表
+     */
+    public static void writeOverflowPages(List<OverFlowPage> pages) throws IOException {
+        for (OverFlowPage page : pages) {
+            writeOverflowPage(page);
+        }
     }
 }
