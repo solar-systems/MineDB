@@ -1,11 +1,15 @@
-package cn.abelib.minedb.index;
+package cn.abelib.minedb.index.fs;
 
-import cn.abelib.minedb.index.fs.Page;
-import cn.abelib.minedb.index.fs.PageLoader;
+import cn.abelib.minedb.index.Configuration;
+import cn.abelib.minedb.index.MetaNode;
+import cn.abelib.minedb.index.TreeNode;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 
 /**
  * @Author: abel.huang
@@ -17,8 +21,19 @@ public class PageTest {
 
     @Before
     public void init() throws IOException {
+        cleanup();
         conf = new Configuration();
+        // Create the database file first
+        MetaNode meta = new MetaNode(conf);
+        PageLoader.writeMeta(meta);
         treeNode = new TreeNode(conf, true, true, 100);
+        // Set position for the tree node
+        treeNode.setPosition(conf.getPageSize());
+    }
+
+    @After
+    public void cleanup() throws IOException {
+        Files.deleteIfExists(Paths.get("default.db"));
     }
 
     @Test
@@ -34,7 +49,8 @@ public class PageTest {
 
     @Test
     public void loadPageTest() throws IOException {
-        Page page = PageLoader.loadPage(conf, 0);
+        PageLoader.writePage(treeNode);
+        Page page = PageLoader.loadPage(conf, treeNode.getPosition());
         System.err.println(page);
     }
 }

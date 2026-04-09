@@ -3,48 +3,30 @@ package cn.abelib.minedb.index;
 import java.nio.file.Path;
 
 /**
+ * 元数据节点
+ *
  * @Author: abel.huang
- * @Date: 2020-10-26 23:40
+ * @Date: 2020-10-25 00:50
  */
 public class MetaNode {
-    /**
-     * 魔数, 6bytes
-     */
     private final String MAGIC = "minedb";
-    /**
-     * 大版本，2bytes
-     */
     private final short majorVersion = 0;
-    /**
-     * 小版本，2bytes
-     */
     private final short minorVersion = 1;
-    /**
-     * 当前B+树分页数
-     */
     private long totalPage;
-    /**
-     * 下一页的大小
-     */
     private long nextPage;
-    /**
-     * 头部大小
-     */
+    private long rootPosition;
+    private long entryCount;
     private int headerSize;
-    /**
-     * 子节点指针大小
-     */
     private int childrenSize;
-
     private int pageSize;
-
     private Configuration conf;
-
     private Path path;
 
-    public MetaNode(Configuration conf){
-        this.totalPage = 0;
-        this.nextPage = 0;
+    public MetaNode(Configuration conf) {
+        this.totalPage = 1;
+        this.nextPage = conf.getPageSize();
+        this.rootPosition = conf.getPageSize();
+        this.entryCount = 0;
         this.conf = conf;
         this.path = conf.getPath();
         this.pageSize = conf.getPageSize();
@@ -52,79 +34,56 @@ public class MetaNode {
         this.childrenSize = conf.getChildrenSize();
     }
 
-    public MetaNode() {
+    public MetaNode() {}
 
-    }
+    public long getTotalPage() { return totalPage; }
+    public void setTotalPage(long totalPage) { this.totalPage = totalPage; }
 
-    public long getTotalPage() {
-        return totalPage;
-    }
+    public String getVersion() { return this.majorVersion + "." + this.minorVersion; }
 
-    public void setTotalPage(long totalPage) {
-        this.totalPage = totalPage;
-    }
+    public Path getPath() { return path; }
 
-    public String getVersion() {
-        return this.majorVersion + "." + this.minorVersion;
-    }
-
-    public Path getPath() {
-        return path;
-    }
-
-    public Configuration getConfiguration() {
-        return this.conf;
-    }
-
+    public Configuration getConfiguration() { return this.conf; }
     public void setConfiguration(Configuration configuration) {
         this.conf = configuration;
         this.path = conf.getPath();
     }
 
-    public long getNextPage() {
-        return nextPage;
-    }
+    public long getNextPage() { return nextPage; }
+    public void setNextPage(long nextPage) { this.nextPage = nextPage; }
 
-    public void setNextPage(long nextPage) {
-        this.nextPage = nextPage;
-    }
+    public long getRootPosition() { return rootPosition; }
+    public void setRootPosition(long rootPosition) { this.rootPosition = rootPosition; }
 
-    public String getMAGIC() {
-        return MAGIC;
-    }
+    public long getEntryCount() { return entryCount; }
+    public void setEntryCount(long entryCount) { this.entryCount = entryCount; }
 
-    public short getMajorVersion() {
-        return majorVersion;
-    }
+    public String getMAGIC() { return MAGIC; }
+    public short getMajorVersion() { return majorVersion; }
+    public short getMinorVersion() { return minorVersion; }
 
-    public short getMinorVersion() {
-        return minorVersion;
-    }
-
-    public int getPageSize() {
-        return this.pageSize;
-    }
-
-    public int getHeaderSize() {
-        return headerSize;
-    }
-
-    public int getChildrenSize() {
-        return childrenSize;
-    }
+    public int getPageSize() { return this.pageSize; }
+    public int getHeaderSize() { return headerSize; }
+    public int getChildrenSize() { return childrenSize; }
 
     public void setHeaderSize(int headerSize) {
         this.headerSize = headerSize;
-        this.conf.setHeaderSize(getHeaderSize());
+        if (this.conf != null) {
+            this.conf.setHeaderSize(headerSize);
+        }
     }
 
     public void setPageSize(int pageSize) {
         this.pageSize = pageSize;
-        this.conf.setPageSize(getPageSize());
+        if (this.conf != null) {
+            this.conf.setPageSize(pageSize);
+        }
     }
 
     public void setChildrenSize(int childrenSize) {
         this.childrenSize = childrenSize;
-        this.conf.setChildrenSize(getChildrenSize());
+        if (this.conf != null) {
+            this.conf.setChildrenSize(childrenSize);
+        }
     }
 }
