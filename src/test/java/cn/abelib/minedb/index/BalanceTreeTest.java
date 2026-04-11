@@ -1,5 +1,6 @@
 package cn.abelib.minedb.index;
 
+import cn.abelib.minedb.index.fs.FreePageList;
 import cn.abelib.minedb.utils.KeyValue;
 import org.junit.After;
 import org.junit.Before;
@@ -8,7 +9,10 @@ import org.junit.Test;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Random;
 
 import static org.junit.Assert.*;
 
@@ -185,5 +189,399 @@ public class BalanceTreeTest {
     @Test
     public void testGetRoot() {
         assertNotNull(balanceTree.getRoot());
+    }
+
+    // ==================== 删除合并测试 ====================
+
+    /**
+     * 测试简单删除 - 少量数据
+     */
+    @Test
+    public void testSimpleDelete() throws Exception {
+        // 插入少量数据
+        for (int i = 0; i < 20; i++) {
+            balanceTree.insert("key" + i, "value" + i);
+        }
+
+        // 验证插入成功
+        for (int i = 0; i < 20; i++) {
+            assertEquals("value" + i, balanceTree.get("key" + i));
+        }
+
+        // 删除一半
+        for (int i = 0; i < 10; i++) {
+            assertTrue("Delete key" + i + " should succeed", balanceTree.delete("key" + i));
+        }
+
+        // 验证删除结果
+        for (int i = 0; i < 10; i++) {
+            assertNull("key" + i + " should be deleted", balanceTree.get("key" + i));
+        }
+        for (int i = 10; i < 20; i++) {
+            assertEquals("value" + i, balanceTree.get("key" + i));
+        }
+    }
+
+    /**
+     * 测试中等数量插入
+     */
+    @Test
+    public void testMediumInserts() throws Exception {
+        // 精确定位问题：测试刚好超过分裂阈值的情况
+        int[] sizes = {120, 125, 130, 140, 150};
+
+        for (int size : sizes) {
+            cleanup();
+            balanceTree = new BalanceTree(new Configuration());
+
+            // 插入数据
+            for (int i = 0; i < size; i++) {
+                String key = String.format("key%04d", i);
+                String value = "value" + "_".repeat(50) + i;
+                balanceTree.insert(key, value);
+            }
+
+            // 验证
+            List<Integer> missingKeys = new ArrayList<>();
+            for (int i = 0; i < size; i++) {
+                String key = String.format("key%04d", i);
+                if (balanceTree.get(key) == null) {
+                    missingKeys.add(i);
+                }
+            }
+
+            if (!missingKeys.isEmpty()) {
+                TreeNode root = balanceTree.getRoot();
+                System.out.println("\n=== Size " + size + " debug info ===");
+                System.out.println("Root: keys=" + root.getKeyValues().size() + ", children=" + root.getChildren().size());
+                System.out.println("Root separator: " + root.getKeyValues());
+
+                int totalKeys = 0;
+                for (int c = 0; c < root.getChildren().size(); c++) {
+                    TreeNode child = root.getChildren().get(c);
+                    if (!child.getKeyValues().isEmpty()) {
+                        System.out.println("Child " + c + ": [" + child.getKeyValues().get(0).getKey() +
+                                         " - " + child.getKeyValues().get(child.getKeyValues().size() - 1).getKey() +
+                                         "], count=" + child.getKeyValues().size());
+                        totalKeys += child.getKeyValues().size();
+                    }
+                }
+                System.out.println("Total keys in tree: " + totalKeys + ", expected: " + size);
+                System.out.println("Missing keys: " + missingKeys);
+
+                fail("Size " + size + " has " + missingKeys.size() + " missing keys");
+            }
+        }
+    }
+
+    /**
+     * 测试删除后节点借用（从右兄弟借用）
+     */
+    @Test
+    public void testDeleteBorrowFromRight() throws Exception {
+        // 插入足够多的数据以创建多个叶子节点
+        for (int i = 0; i < 200; i++) {
+            String key = String.format("key%04d", i);
+            String value = "value" + "_".repeat(50) + i;
+            balanceTree.insert(key, value);
+        }
+
+        // 验证所有数据已插入
+        for (int i = 0; i < 200; i++) {
+            String v = balanceTree.get(String.format("key%04d", i));
+            assertNotNull("Key " + i + " should exist after insert", v);
+        }
+
+        // 删除大部分数据
+        for (int i = 0; i < 150; i++) {
+            balanceTree.delete(String.format("key%04d", i));
+        }
+
+        // 验证剩余数据仍然正确
+        for (int i = 150; i < 200; i++) {
+            String key = String.format("key%04d", i);
+            String value = balanceTree.get(key);
+            assertNotNull("Key " + i + " should still exist", value);
+            assertTrue(value.contains(String.valueOf(i)));
+        }
+
+        // 验证已删除的数据不存在
+        for (int i = 0; i < 150; i++) {
+            assertNull("Key " + i + " should be deleted", balanceTree.get(String.format("key%04d", i)));
+        }
+    }
+
+    /**
+     * 测试删除后节点借用（从左兄弟借用）
+     */
+    @Test
+    public void testDeleteBorrowFromLeft() throws Exception {
+        // 插入数据
+        for (int i = 0; i < 200; i++) {
+            String key = String.format("key%04d", i);
+            String value = "value" + "_".repeat(50) + i;
+            balanceTree.insert(key, value);
+        }
+
+        // 从后向前删除
+        for (int i = 199; i >= 50; i--) {
+            balanceTree.delete(String.format("key%04d", i));
+        }
+
+        // 验证剩余数据
+        for (int i = 0; i < 50; i++) {
+            String key = String.format("key%04d", i);
+            assertNotNull("Key " + i + " should still exist", balanceTree.get(key));
+        }
+    }
+
+    /**
+     * 测试删除后节点合并
+     */
+    @Test
+    public void testDeleteNodeMerge() throws Exception {
+        // 插入大量数据
+        for (int i = 0; i < 500; i++) {
+            String key = String.format("key%05d", i);
+            String value = "value" + "_".repeat(100) + i;
+            balanceTree.insert(key, value);
+        }
+
+        // 删除大部分数据
+        for (int i = 0; i < 400; i++) {
+            balanceTree.delete(String.format("key%05d", i));
+        }
+
+        // 验证剩余数据仍然正确
+        for (int i = 400; i < 500; i++) {
+            String key = String.format("key%05d", i);
+            String value = balanceTree.get(key);
+            assertNotNull("Key " + i + " should still exist", value);
+            assertTrue(value.contains(String.valueOf(i)));
+        }
+    }
+
+    /**
+     * 测试删除到只剩根节点
+     */
+    @Test
+    public void testDeleteToRoot() throws Exception {
+        // 插入数据
+        for (int i = 0; i < 100; i++) {
+            balanceTree.insert("key" + i, "value" + i);
+        }
+
+        // 删除所有数据
+        for (int i = 0; i < 100; i++) {
+            assertTrue("Delete key" + i + " should succeed", balanceTree.delete("key" + i));
+        }
+
+        // 验证树为空
+        assertNull(balanceTree.get("key0"));
+        assertNull(balanceTree.get("key99"));
+
+        // 根节点仍然存在
+        assertNotNull(balanceTree.getRoot());
+        assertTrue(balanceTree.getRoot().getKeyValues().isEmpty());
+    }
+
+    /**
+     * 测试交替插入删除
+     */
+    @Test
+    public void testAlternatingInsertDelete() throws Exception {
+        // 第一轮插入
+        for (int i = 0; i < 200; i++) {
+            balanceTree.insert("key" + i, "value" + i);
+        }
+
+        // 删除一半
+        for (int i = 0; i < 100; i++) {
+            balanceTree.delete("key" + i);
+        }
+
+        // 再插入新的
+        for (int i = 200; i < 300; i++) {
+            balanceTree.insert("key" + i, "value" + i);
+        }
+
+        // 验证：前100个不存在，100-199存在，200-299存在
+        for (int i = 0; i < 100; i++) {
+            assertNull(balanceTree.get("key" + i));
+        }
+        for (int i = 100; i < 200; i++) {
+            assertEquals("value" + i, balanceTree.get("key" + i));
+        }
+        for (int i = 200; i < 300; i++) {
+            assertEquals("value" + i, balanceTree.get("key" + i));
+        }
+    }
+
+    /**
+     * 测试随机删除顺序
+     */
+    @Test
+    public void testRandomDeleteOrder() throws Exception {
+        Random random = new Random(42); // 固定种子以便复现
+        List<Integer> keys = new ArrayList<>();
+
+        // 插入数据
+        for (int i = 0; i < 300; i++) {
+            balanceTree.insert("key" + i, "value" + i);
+            keys.add(i);
+        }
+
+        // 随机打乱删除顺序
+        Collections.shuffle(keys, random);
+
+        // 随机删除一半
+        for (int i = 0; i < 150; i++) {
+            int keyIndex = keys.get(i);
+            assertTrue(balanceTree.delete("key" + keyIndex));
+        }
+
+        // 验证删除结果
+        for (int i = 0; i < 150; i++) {
+            assertNull(balanceTree.get("key" + keys.get(i)));
+        }
+        for (int i = 150; i < 300; i++) {
+            assertNotNull(balanceTree.get("key" + keys.get(i)));
+        }
+    }
+
+    /**
+     * 测试删除后范围查询正确性
+     */
+    @Test
+    public void testRangeAfterDelete() throws Exception {
+        // 插入数据
+        for (int i = 0; i < 200; i++) {
+            balanceTree.insert(String.format("k%03d", i), "v" + i);
+        }
+
+        // 删除中间部分
+        for (int i = 50; i < 150; i++) {
+            balanceTree.delete(String.format("k%03d", i));
+        }
+
+        // 范围查询
+        List<KeyValue> range = balanceTree.range("k000", "k200");
+        assertEquals(100, range.size()); // 0-49 和 150-199
+
+        // 验证范围查询结果
+        for (KeyValue kv : range) {
+            int num = Integer.parseInt(kv.getKey().substring(1));
+            assertTrue(num < 50 || num >= 150);
+        }
+    }
+
+    /**
+     * 测试删除后前缀查询正确性
+     */
+    @Test
+    public void testPrefixAfterDelete() throws Exception {
+        // 插入不同前缀的数据
+        for (int i = 0; i < 50; i++) {
+            balanceTree.insert("user:" + i, "u" + i);
+            balanceTree.insert("admin:" + i, "a" + i);
+            balanceTree.insert("guest:" + i, "g" + i);
+        }
+
+        // 删除 admin 前缀的所有数据
+        for (int i = 0; i < 50; i++) {
+            balanceTree.delete("admin:" + i);
+        }
+
+        // 验证前缀查询
+        List<KeyValue> userPrefix = balanceTree.prefix("user:");
+        assertEquals(50, userPrefix.size());
+
+        List<KeyValue> adminPrefix = balanceTree.prefix("admin:");
+        assertEquals(0, adminPrefix.size());
+
+        List<KeyValue> guestPrefix = balanceTree.prefix("guest:");
+        assertEquals(50, guestPrefix.size());
+    }
+
+    /**
+     * 测试大量数据删除后的树结构完整性
+     */
+    @Test
+    public void testTreeIntegrityAfterMassiveDelete() throws Exception {
+        // 插入大量数据
+        int total = 2000;
+        for (int i = 0; i < total; i++) {
+            balanceTree.insert("key" + String.format("%04d", i), "value" + i);
+        }
+
+        // 删除大部分数据，只保留少量
+        for (int i = 0; i < total - 100; i++) {
+            assertTrue(balanceTree.delete("key" + String.format("%04d", i)));
+        }
+
+        // 验证剩余数据
+        for (int i = total - 100; i < total; i++) {
+            String key = "key" + String.format("%04d", i);
+            String value = balanceTree.get(key);
+            assertNotNull("Key " + i + " should exist", value);
+            assertEquals("value" + i, value);
+        }
+
+        // 验证根节点存在
+        assertNotNull(balanceTree.getRoot());
+    }
+
+    /**
+     * 测试删除后持久化和恢复
+     */
+    @Test
+    public void testPersistenceAfterDelete() throws Exception {
+        // 插入数据
+        for (int i = 0; i < 200; i++) {
+            balanceTree.insert("key" + i, "value" + i);
+        }
+
+        // 删除一半
+        for (int i = 0; i < 100; i++) {
+            balanceTree.delete("key" + i);
+        }
+
+        // 持久化
+        balanceTree.flush(100);
+
+        // 创建新的树实例来恢复数据
+        BalanceTree restoredTree = new BalanceTree(new Configuration());
+
+        // 验证数据
+        for (int i = 0; i < 100; i++) {
+            assertNull(restoredTree.get("key" + i));
+        }
+        for (int i = 100; i < 200; i++) {
+            assertEquals("value" + i, restoredTree.get("key" + i));
+        }
+    }
+
+    /**
+     * 测试 FreePageList 在删除操作后的状态
+     */
+    @Test
+    public void testFreePageListAfterDelete() throws Exception {
+        FreePageList freePageList = balanceTree.getFreePageList();
+        assertNotNull(freePageList);
+        int initialCount = freePageList.getFreePageCount();
+
+        // 插入大量数据
+        for (int i = 0; i < 500; i++) {
+            balanceTree.insert("key" + i, "value" + i);
+        }
+
+        // 删除数据后检查空闲页
+        for (int i = 0; i < 250; i++) {
+            balanceTree.delete("key" + i);
+        }
+
+        // 删除后空闲页可能增加（如果释放了溢出页）
+        // 注意：普通记录不会立即释放页面，只有溢出页才会
+        assertTrue(freePageList.getFreePageCount() >= initialCount);
     }
 }

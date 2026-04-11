@@ -18,35 +18,47 @@ public class PageUtils {
 
     /**
      * 找到entry应该所处于的位置
+     * 在 B+ 树内部节点中，返回应该进入的子节点索引
+     * 如果 entry < keys[0]，返回 0
+     * 如果 keys[i] <= entry < keys[i+1]，返回 i+1
+     * 如果 entry >= keys[last]，返回 keys.size()
      */
     public static int binarySearchForIndex(KeyValue entry, List<KeyValue> keyValues) {
-        if (keyValues.size() <= 0) {
+        if (keyValues.isEmpty()) {
             return 0;
         }
+
         int left = 0;
         int right = keyValues.size() - 1;
-        int mid;
-        int index = -1;
-        // 如果小于第一个元素，那位置就在第一个位置
+
+        // 如果小于第一个键，进入第一个子节点
         if (entry.compareTo(keyValues.get(left)) < 0) {
             return 0;
         }
-        // 如果大于最后一个元素，那位置就在集合最后一个位置
+
+        // 如果大于等于最后一个键，进入最后一个子节点
         if (entry.compareTo(keyValues.get(right)) >= 0) {
             return keyValues.size();
         }
+
+        // 二分查找：找到第一个大于 entry 的键的位置
+        // 返回该位置作为子节点索引
+        int result = keyValues.size();
         while (left <= right) {
-            mid = left + (right - left) / 2;
-            if (entry.compareTo(keyValues.get(mid)) < 0 && entry.compareTo(keyValues.get(mid - 1)) >= 0) {
-                index = mid;
-                break;
-            } else if (entry.compareTo(keyValues.get(mid)) >= 0) {
-                left = mid + 1;
-            } else {
+            int mid = left + (right - left) / 2;
+            int cmp = entry.compareTo(keyValues.get(mid));
+
+            if (cmp < 0) {
+                // entry 小于 keys[mid]，可能在这个位置
+                result = mid;
                 right = mid - 1;
+            } else {
+                // entry 大于等于 keys[mid]，继续向右搜索
+                left = mid + 1;
             }
         }
-        return index;
+
+        return result;
     }
 
     /**
