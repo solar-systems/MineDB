@@ -32,6 +32,7 @@ public class TreeNode {
     private Page page;
     private Configuration conf;
     private boolean readFlag;
+    private PageCache pageCache;
 
     public TreeNode(Configuration conf, boolean isLeaf, boolean isRoot, long pageNo) throws IOException {
         this.conf = conf;
@@ -57,10 +58,12 @@ public class TreeNode {
 
     public void setDirty(boolean dirty) {
         isDirty = dirty;
-        if (dirty) {
-            GlobalPageCache.putDirtyPage(this);
-        } else {
-            GlobalPageCache.putCleanPage(this);
+        if (pageCache != null) {
+            if (dirty) {
+                pageCache.putDirtyPage(this);
+            } else {
+                pageCache.putCleanPage(this);
+            }
         }
     }
 
@@ -142,4 +145,7 @@ public class TreeNode {
 
     public boolean isReadFlag() { return readFlag; }
     public void setReadFlag(boolean readFlag) { this.readFlag = readFlag; }
+
+    public PageCache getPageCache() { return pageCache; }
+    public void setPageCache(PageCache pageCache) { this.pageCache = pageCache; }
 }

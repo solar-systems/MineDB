@@ -4,6 +4,8 @@ import cn.abelib.minedb.index.fs.FreePageList;
 import cn.abelib.minedb.index.fs.Page;
 import cn.abelib.minedb.index.fs.PageLoader;
 import cn.abelib.minedb.index.fs.Record;
+import cn.abelib.minedb.index.wal.WalEntry;
+import cn.abelib.minedb.index.wal.WalLog;
 import cn.abelib.minedb.utils.KeyValue;
 import org.apache.commons.lang3.StringUtils;
 
@@ -31,11 +33,26 @@ public class BalanceTree {
     /** 空闲页链表，管理溢出页空间 */
     private FreePageList freePageList;
 
+    /** 页缓存，每个数据库实例独立 */
+    private PageCache pageCache;
+
+    /** WAL 预写日志，用于崩溃恢复 */
+    private WalLog walLog;
+
     /** 读写锁，支持并发读，写操作互斥 */
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
     /** 最小填充因子，节点键值对数量少于此比例时需要合并 */
     private static final double MIN_FILL_FACTOR = 0.25;
+
+    /**
+     * 创建 TreeNode 并设置 pageCache
+     */
+    private TreeNode createTreeNode(Configuration conf, boolean isLeaf, boolean isRoot, long pageNo) throws IOException {
+        TreeNode node = new TreeNode(conf, isLeaf, isRoot, pageNo);
+        node.setPageCache(this.pageCache);
+        return node;
+    }
 
     public BalanceTree() {
         this.configuration = new Configuration();
@@ -55,6 +72,11 @@ public class BalanceTree {
 
         lock.writeLock().lock();
         try {
+            // 先写 WAL
+            if (walLog != null) {
+                walLog.logPut(key, value);
+            }
+
             KeyValue entry = new KeyValue(key, value);
             if (getRootInternal().getChildren().isEmpty() && !PageUtils.isFull(getRootInternal())) {
                 insert(entry, getRootInternal());
@@ -81,7 +103,7 @@ public class BalanceTree {
         int originalSize = node.getKeyValues().size();
 
         // 创建右节点
-        TreeNode rightNode = new TreeNode(this.configuration, true, false, pageNo.getAndIncrement());
+        TreeNode rightNode = createTreeNode(this.configuration, true, false, pageNo.getAndIncrement());
 
         // 右节点包含 [mid, size) 的键值对
         rightNode.setKeys(new ArrayList<>(node.getKeyValues().subList(mid, node.getKeyValues().size())));
@@ -105,7 +127,7 @@ public class BalanceTree {
         node.setNext(rightNode);
 
         // 创建提升节点，包含分隔键和右节点
-        TreeNode promoteNode = new TreeNode(this.configuration, true, false, pageNo.getAndIncrement());
+        TreeNode promoteNode = createTreeNode(this.configuration, true, false, pageNo.getAndIncrement());
         // 分隔键是右节点的第一个键
         KeyValue separatorKey = new KeyValue(rightNode.getKeyValues().get(0));
         promoteNode.getKeyValues().add(separatorKey);
@@ -121,7 +143,7 @@ public class BalanceTree {
     private void insertIntoParent(TreeNode parent, TreeNode leftNode, TreeNode promoteNode) throws IOException {
         if (parent == null) {
             // 没有父节点，创建新根
-            TreeNode newRoot = new TreeNode(this.configuration, true, false, pageNo.getAndIncrement());
+            TreeNode newRoot = createTreeNode(this.configuration, true, false, pageNo.getAndIncrement());
             newRoot.setLeaf(false);
             newRoot.setRoot(true);
 
@@ -205,7 +227,7 @@ public class BalanceTree {
         KeyValue separatorKey = node.getKeyValues().get(mid);
 
         // 创建右节点
-        TreeNode rightNode = new TreeNode(this.configuration, true, false, pageNo.getAndIncrement());
+        TreeNode rightNode = createTreeNode(this.configuration, true, false, pageNo.getAndIncrement());
         rightNode.setLeaf(false);
         rightNode.setParent(parent);
 
@@ -236,7 +258,7 @@ public class BalanceTree {
         node.setDirty(true);
 
         // 创建提升节点
-        TreeNode promoteNode = new TreeNode(this.configuration, true, false, pageNo.getAndIncrement());
+        TreeNode promoteNode = createTreeNode(this.configuration, true, false, pageNo.getAndIncrement());
         promoteNode.getKeyValues().add(separatorKey);
         promoteNode.getChildren().add(rightNode);
 
@@ -245,7 +267,7 @@ public class BalanceTree {
     }
 
     private void insert(KeyValue entry, TreeNode node) {
-        int index = PageUtils.binarySearchForIndex(entry, getRootInternal().getKeyValues());
+        int index = PageUtils.binarySearchForIndex(entry, node.getKeyValues());
         if (index != 0 && node.getKeyValues().get(index - 1).getKey().equals(entry.getKey())) {
             node.getKeyValues().get(index - 1).setValue(entry.getValue());
         } else {
@@ -255,16 +277,31 @@ public class BalanceTree {
     }
 
     private void init() throws IOException {
+        // 初始化页缓存
+        if (Objects.isNull(this.pageCache)) {
+            this.pageCache = new PageCache(configuration.getCacheSize());
+        }
+
+        // 初始化 WAL
+        try {
+            this.walLog = new WalLog(configuration);
+        } catch (IOException e) {
+            System.err.println("Warning: Failed to initialize WAL: " + e.getMessage());
+            this.walLog = null;
+        }
+
         if (Objects.isNull(this.metaNode)) {
             if (PageLoader.existsMeta(configuration.getPath())) {
                 this.metaNode = PageLoader.readMeta(configuration);
                 this.root = loadRootFromDisk();
                 // 加载空闲页链表
                 this.freePageList = loadFreePageList();
+                // 从 WAL 恢复数据
+                recoverFromWal();
             } else {
                 this.metaNode = new MetaNode(configuration);
                 PageLoader.writeMeta(metaNode);
-                this.root = new TreeNode(configuration, true, true, 0L);
+                this.root = createTreeNode(configuration, true, true, 0L);
                 this.root.setPosition(metaNode.getRootPosition());
                 // 创建新的空闲页链表
                 this.freePageList = new FreePageList(configuration);
@@ -272,10 +309,104 @@ public class BalanceTree {
             this.pageNo = new AtomicLong(this.metaNode.getNextPage());
         }
         if (Objects.isNull(this.root)) {
-            this.root = new TreeNode(configuration, true, true, 0L);
+            this.root = createTreeNode(configuration, true, true, 0L);
         }
         if (Objects.isNull(this.freePageList)) {
             this.freePageList = new FreePageList(configuration);
+        }
+    }
+
+    /**
+     * 从 WAL 恢复数据
+     */
+    private void recoverFromWal() throws IOException {
+        if (walLog == null || !walLog.exists()) {
+            return;
+        }
+
+        List<WalEntry> entries = walLog.readAllEntries();
+        if (entries.isEmpty()) {
+            return;
+        }
+
+        System.out.println("Recovering " + entries.size() + " entries from WAL...");
+
+        // 找到最后一个 SYNC 检查点
+        long lastSyncSequence = -1;
+        for (int i = entries.size() - 1; i >= 0; i--) {
+            if (entries.get(i).getType() == WalEntry.Type.SYNC) {
+                lastSyncSequence = entries.get(i).getSequence();
+                break;
+            }
+        }
+
+        // 只重放 SYNC 之后的条目
+        for (WalEntry entry : entries) {
+            if (entry.getSequence() <= lastSyncSequence) {
+                continue;
+            }
+
+            try {
+                switch (entry.getType()) {
+                    case PUT:
+                        // 直接调用内部插入方法，避免再次写 WAL
+                        recoverPut(entry.getKey(), entry.getValue());
+                        break;
+                    case DELETE:
+                        recoverDelete(entry.getKey());
+                        break;
+                    default:
+                        break;
+                }
+            } catch (Exception e) {
+                System.err.println("Failed to recover WAL entry: " + e.getMessage());
+            }
+        }
+
+        System.out.println("WAL recovery completed.");
+    }
+
+    /**
+     * 恢复 PUT 操作（不写 WAL）
+     */
+    private void recoverPut(String key, String value) throws Exception {
+        if (StringUtils.isBlank(key) || StringUtils.isBlank(value)) {
+            return;
+        }
+
+        KeyValue entry = new KeyValue(key, value);
+        if (getRootInternal().getChildren().isEmpty() && !PageUtils.isFull(getRootInternal())) {
+            insert(entry, getRootInternal());
+        } else {
+            TreeNode curr = getRootInternal();
+            while (!curr.getChildren().isEmpty()) {
+                curr = curr.getChildren().get(PageUtils.binarySearchForIndex(entry, curr.getKeyValues()));
+            }
+            insert(entry, curr);
+            if (PageUtils.isFull(curr)) {
+                split(curr);
+            }
+        }
+    }
+
+    /**
+     * 恢复 DELETE 操作（不写 WAL）
+     */
+    private void recoverDelete(String key) throws IOException {
+        if (StringUtils.isBlank(key) || root == null || getRootInternal().getKeyValues().isEmpty()) {
+            return;
+        }
+
+        KeyValue entry = new KeyValue(key);
+        TreeNode leaf = findLeafNode(entry);
+        if (leaf == null) {
+            return;
+        }
+
+        int index = PageUtils.binarySearch(entry, leaf.getKeyValues());
+        if (index >= 0) {
+            leaf.getKeyValues().remove(index);
+            leaf.setDirty(true);
         }
     }
 
@@ -297,7 +428,7 @@ public class BalanceTree {
         long fileSize = configuration.getPath().toFile().length();
 
         if (rootPos <= 0 || fileSize < rootPos + 100) {
-            TreeNode newRoot = new TreeNode(configuration, true, true, 0L);
+            TreeNode newRoot = createTreeNode(configuration, true, true, 0L);
             newRoot.setPosition(metaNode.getRootPosition());
             return newRoot;
         }
@@ -307,9 +438,10 @@ public class BalanceTree {
             TreeNode root = rootPage.getNode();
             root.setConfiguration(configuration);
             root.setPage(rootPage);
+            root.setPageCache(this.pageCache);
             return root;
         } catch (Exception e) {
-            TreeNode newRoot = new TreeNode(configuration, true, true, 0L);
+            TreeNode newRoot = createTreeNode(configuration, true, true, 0L);
             newRoot.setPosition(metaNode.getRootPosition());
             return newRoot;
         }
@@ -329,12 +461,22 @@ public class BalanceTree {
                 root.setDirty(true);
             }
 
-            GlobalPageCache.getInstance().flushDirtyPages();
+            pageCache.flushDirtyPages();
             PageLoader.updateMeta(metaNode);
 
             // 保存空闲页链表
             if (freePageList != null) {
                 freePageList.save();
+            }
+
+            // 写入 SYNC 检查点并清理 WAL
+            if (walLog != null) {
+                try {
+                    walLog.logSync();
+                    walLog.clear();
+                } catch (IOException e) {
+                    System.err.println("Warning: Failed to sync/clear WAL: " + e.getMessage());
+                }
             }
         } finally {
             lock.writeLock().unlock();
@@ -459,6 +601,19 @@ public class BalanceTree {
         return node;
     }
 
+    /**
+     * 通过键查找叶子节点
+     *
+     * @param key 键
+     * @return 包含该键的叶子节点，或应该包含该键的叶子节点
+     */
+    public TreeNode findLeafNodeByKey(String key) throws IOException {
+        if (StringUtils.isBlank(key)) {
+            return null;
+        }
+        return findLeafNode(new KeyValue(key));
+    }
+
     // ==================== 删除操作（带节点合并） ====================
 
     public boolean delete(String key) throws IOException {
@@ -482,6 +637,15 @@ public class BalanceTree {
             int index = PageUtils.binarySearch(entry, leaf.getKeyValues());
             if (index < 0) {
                 return false;
+            }
+
+            // 先写 WAL
+            if (walLog != null) {
+                try {
+                    walLog.logDelete(key);
+                } catch (IOException e) {
+                    System.err.println("Warning: Failed to write DELETE to WAL: " + e.getMessage());
+                }
             }
 
             // 获取被删除的记录，检查是否有溢出页
@@ -837,6 +1001,38 @@ public class BalanceTree {
      */
     public FreePageList getFreePageList() {
         return freePageList;
+    }
+
+    /**
+     * 获取页缓存
+     */
+    public PageCache getPageCache() {
+        return pageCache;
+    }
+
+    /**
+     * 清空页缓存
+     */
+    public void clearCache() {
+        if (pageCache != null) {
+            pageCache.clear();
+        }
+    }
+
+    /**
+     * 关闭 WAL
+     */
+    public void closeWal() {
+        if (walLog != null) {
+            walLog.close();
+        }
+    }
+
+    /**
+     * 获取 WAL 日志
+     */
+    public WalLog getWalLog() {
+        return walLog;
     }
 
     /**

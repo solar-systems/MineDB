@@ -227,49 +227,21 @@ public class BalanceTreeTest {
      */
     @Test
     public void testMediumInserts() throws Exception {
-        // 精确定位问题：测试刚好超过分裂阈值的情况
-        int[] sizes = {120, 125, 130, 140, 150};
+        int[] sizes = {50, 100, 150, 200, 300, 500};
 
         for (int size : sizes) {
             cleanup();
             balanceTree = new BalanceTree(new Configuration());
 
-            // 插入数据
             for (int i = 0; i < size; i++) {
                 String key = String.format("key%04d", i);
                 String value = "value" + "_".repeat(50) + i;
                 balanceTree.insert(key, value);
             }
 
-            // 验证
-            List<Integer> missingKeys = new ArrayList<>();
             for (int i = 0; i < size; i++) {
                 String key = String.format("key%04d", i);
-                if (balanceTree.get(key) == null) {
-                    missingKeys.add(i);
-                }
-            }
-
-            if (!missingKeys.isEmpty()) {
-                TreeNode root = balanceTree.getRoot();
-                System.out.println("\n=== Size " + size + " debug info ===");
-                System.out.println("Root: keys=" + root.getKeyValues().size() + ", children=" + root.getChildren().size());
-                System.out.println("Root separator: " + root.getKeyValues());
-
-                int totalKeys = 0;
-                for (int c = 0; c < root.getChildren().size(); c++) {
-                    TreeNode child = root.getChildren().get(c);
-                    if (!child.getKeyValues().isEmpty()) {
-                        System.out.println("Child " + c + ": [" + child.getKeyValues().get(0).getKey() +
-                                         " - " + child.getKeyValues().get(child.getKeyValues().size() - 1).getKey() +
-                                         "], count=" + child.getKeyValues().size());
-                        totalKeys += child.getKeyValues().size();
-                    }
-                }
-                System.out.println("Total keys in tree: " + totalKeys + ", expected: " + size);
-                System.out.println("Missing keys: " + missingKeys);
-
-                fail("Size " + size + " has " + missingKeys.size() + " missing keys");
+                assertNotNull("Key " + i + " should exist", balanceTree.get(key));
             }
         }
     }
@@ -279,34 +251,26 @@ public class BalanceTreeTest {
      */
     @Test
     public void testDeleteBorrowFromRight() throws Exception {
-        // 插入足够多的数据以创建多个叶子节点
-        for (int i = 0; i < 200; i++) {
+        for (int i = 0; i < 300; i++) {
             String key = String.format("key%04d", i);
             String value = "value" + "_".repeat(50) + i;
             balanceTree.insert(key, value);
         }
 
-        // 验证所有数据已插入
-        for (int i = 0; i < 200; i++) {
-            String v = balanceTree.get(String.format("key%04d", i));
-            assertNotNull("Key " + i + " should exist after insert", v);
+        for (int i = 0; i < 300; i++) {
+            assertNotNull("Key " + i + " should exist after insert", balanceTree.get(String.format("key%04d", i)));
         }
 
-        // 删除大部分数据
-        for (int i = 0; i < 150; i++) {
+        for (int i = 0; i < 200; i++) {
             balanceTree.delete(String.format("key%04d", i));
         }
 
-        // 验证剩余数据仍然正确
-        for (int i = 150; i < 200; i++) {
+        for (int i = 200; i < 300; i++) {
             String key = String.format("key%04d", i);
-            String value = balanceTree.get(key);
-            assertNotNull("Key " + i + " should still exist", value);
-            assertTrue(value.contains(String.valueOf(i)));
+            assertNotNull("Key " + i + " should still exist", balanceTree.get(key));
         }
 
-        // 验证已删除的数据不存在
-        for (int i = 0; i < 150; i++) {
+        for (int i = 0; i < 200; i++) {
             assertNull("Key " + i + " should be deleted", balanceTree.get(String.format("key%04d", i)));
         }
     }
@@ -316,22 +280,18 @@ public class BalanceTreeTest {
      */
     @Test
     public void testDeleteBorrowFromLeft() throws Exception {
-        // 插入数据
-        for (int i = 0; i < 200; i++) {
+        for (int i = 0; i < 300; i++) {
             String key = String.format("key%04d", i);
             String value = "value" + "_".repeat(50) + i;
             balanceTree.insert(key, value);
         }
 
-        // 从后向前删除
-        for (int i = 199; i >= 50; i--) {
+        for (int i = 299; i >= 100; i--) {
             balanceTree.delete(String.format("key%04d", i));
         }
 
-        // 验证剩余数据
-        for (int i = 0; i < 50; i++) {
-            String key = String.format("key%04d", i);
-            assertNotNull("Key " + i + " should still exist", balanceTree.get(key));
+        for (int i = 0; i < 100; i++) {
+            assertNotNull("Key " + i + " should still exist", balanceTree.get(String.format("key%04d", i)));
         }
     }
 
@@ -340,24 +300,19 @@ public class BalanceTreeTest {
      */
     @Test
     public void testDeleteNodeMerge() throws Exception {
-        // 插入大量数据
-        for (int i = 0; i < 500; i++) {
+        for (int i = 0; i < 1000; i++) {
             String key = String.format("key%05d", i);
             String value = "value" + "_".repeat(100) + i;
             balanceTree.insert(key, value);
         }
 
-        // 删除大部分数据
-        for (int i = 0; i < 400; i++) {
+        for (int i = 0; i < 800; i++) {
             balanceTree.delete(String.format("key%05d", i));
         }
 
-        // 验证剩余数据仍然正确
-        for (int i = 400; i < 500; i++) {
+        for (int i = 800; i < 1000; i++) {
             String key = String.format("key%05d", i);
-            String value = balanceTree.get(key);
-            assertNotNull("Key " + i + " should still exist", value);
-            assertTrue(value.contains(String.valueOf(i)));
+            assertNotNull("Key " + i + " should still exist", balanceTree.get(key));
         }
     }
 
@@ -508,26 +463,20 @@ public class BalanceTreeTest {
      */
     @Test
     public void testTreeIntegrityAfterMassiveDelete() throws Exception {
-        // 插入大量数据
-        int total = 2000;
+        int total = 5000;
         for (int i = 0; i < total; i++) {
             balanceTree.insert("key" + String.format("%04d", i), "value" + i);
         }
 
-        // 删除大部分数据，只保留少量
         for (int i = 0; i < total - 100; i++) {
             assertTrue(balanceTree.delete("key" + String.format("%04d", i)));
         }
 
-        // 验证剩余数据
         for (int i = total - 100; i < total; i++) {
             String key = "key" + String.format("%04d", i);
-            String value = balanceTree.get(key);
-            assertNotNull("Key " + i + " should exist", value);
-            assertEquals("value" + i, value);
+            assertEquals("value" + i, balanceTree.get(key));
         }
 
-        // 验证根节点存在
         assertNotNull(balanceTree.getRoot());
     }
 

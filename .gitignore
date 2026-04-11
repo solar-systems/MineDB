@@ -33,3 +33,4 @@ log/*
 conf/*
 
 *.db
+*.wal
