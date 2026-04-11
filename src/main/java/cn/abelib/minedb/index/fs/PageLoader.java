@@ -35,86 +35,86 @@ public class PageLoader {
             Files.delete(path);
         }
         Files.createFile(path);
-        FileChannel channel = FileChannel.open(path, StandardOpenOption.WRITE);
-        channel.position(0);
-        ByteBuffer buffer = ByteBuffer.allocate(conf.getPageSize());
-        buffer.put(ByteUtils.getBytesUTF8(meta.getMAGIC()));
-        buffer.putShort(meta.getMajorVersion());
-        buffer.putShort(meta.getMinorVersion());
-        buffer.putInt(conf.getPageSize());
-        buffer.putLong(meta.getTotalPage());
-        buffer.putLong(meta.getNextPage());
-        buffer.putLong(meta.getRootPosition());
-        buffer.putLong(meta.getEntryCount());
-        buffer.putInt(conf.getHeaderSize());
-        buffer.putInt(conf.getChildrenSize());
-        buffer.flip();
-        channel.write(buffer);
-        channel.force(true);
-        channel.close();
+        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.WRITE)) {
+            channel.position(0);
+            ByteBuffer buffer = ByteBuffer.allocate(conf.getPageSize());
+            buffer.put(ByteUtils.getBytesUTF8(meta.getMAGIC()));
+            buffer.putShort(meta.getMajorVersion());
+            buffer.putShort(meta.getMinorVersion());
+            buffer.putInt(conf.getPageSize());
+            buffer.putLong(meta.getTotalPage());
+            buffer.putLong(meta.getNextPage());
+            buffer.putLong(meta.getRootPosition());
+            buffer.putLong(meta.getEntryCount());
+            buffer.putInt(conf.getHeaderSize());
+            buffer.putInt(conf.getChildrenSize());
+            buffer.flip();
+            channel.write(buffer);
+            channel.force(true);
+        }
     }
 
     public static void updateMeta(MetaNode meta) throws IOException {
         Path path = meta.getPath();
         Configuration conf = meta.getConfiguration();
-        FileChannel channel = FileChannel.open(path, StandardOpenOption.WRITE);
-        channel.position(0);
-        ByteBuffer buffer = ByteBuffer.allocate(conf.getPageSize());
-        buffer.put(ByteUtils.getBytesUTF8(meta.getMAGIC()));
-        buffer.putShort(meta.getMajorVersion());
-        buffer.putShort(meta.getMinorVersion());
-        buffer.putInt(conf.getPageSize());
-        buffer.putLong(meta.getTotalPage());
-        buffer.putLong(meta.getNextPage());
-        buffer.putLong(meta.getRootPosition());
-        buffer.putLong(meta.getEntryCount());
-        buffer.putInt(conf.getHeaderSize());
-        buffer.putInt(conf.getChildrenSize());
-        buffer.flip();
-        channel.write(buffer);
-        channel.force(true);
-        channel.close();
+        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.WRITE)) {
+            channel.position(0);
+            ByteBuffer buffer = ByteBuffer.allocate(conf.getPageSize());
+            buffer.put(ByteUtils.getBytesUTF8(meta.getMAGIC()));
+            buffer.putShort(meta.getMajorVersion());
+            buffer.putShort(meta.getMinorVersion());
+            buffer.putInt(conf.getPageSize());
+            buffer.putLong(meta.getTotalPage());
+            buffer.putLong(meta.getNextPage());
+            buffer.putLong(meta.getRootPosition());
+            buffer.putLong(meta.getEntryCount());
+            buffer.putInt(conf.getHeaderSize());
+            buffer.putInt(conf.getChildrenSize());
+            buffer.flip();
+            channel.write(buffer);
+            channel.force(true);
+        }
     }
 
     public static MetaNode readMeta(Configuration conf) throws IOException {
         Path path = conf.getPath();
         MetaNode meta = new MetaNode();
-        FileChannel channel = FileChannel.open(path, StandardOpenOption.READ);
-        channel.position(0);
-        ByteBuffer buffer = ByteBuffer.allocate(conf.getPageSize());
-        channel.read(buffer);
-        buffer.flip();
-        String magic = ByteUtils.toUTF8String(buffer, 6);
-        if (!StringUtils.equals(magic, meta.getMAGIC())) {
-            throw new IllegalArgumentException("Invalid disk file!");
+        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
+            channel.position(0);
+            ByteBuffer buffer = ByteBuffer.allocate(conf.getPageSize());
+            channel.read(buffer);
+            buffer.flip();
+            String magic = ByteUtils.toUTF8String(buffer, 6);
+            if (!StringUtils.equals(magic, meta.getMAGIC())) {
+                throw new IllegalArgumentException("Invalid disk file!");
+            }
+            buffer.getShort(); // majorVersion
+            buffer.getShort(); // minorVersion
+            meta.setConfiguration(conf);
+            meta.setPageSize(buffer.getInt());
+            meta.setTotalPage(buffer.getLong());
+            meta.setNextPage(buffer.getLong());
+            if (buffer.remaining() >= 8) {
+                meta.setRootPosition(buffer.getLong());
+            }
+            if (buffer.remaining() >= 8) {
+                meta.setEntryCount(buffer.getLong());
+            }
+            if (buffer.remaining() >= 8) {
+                meta.setHeaderSize(buffer.getInt());
+                meta.setChildrenSize(buffer.getInt());
+            }
         }
-        buffer.getShort(); // majorVersion
-        buffer.getShort(); // minorVersion
-        meta.setConfiguration(conf);
-        meta.setPageSize(buffer.getInt());
-        meta.setTotalPage(buffer.getLong());
-        meta.setNextPage(buffer.getLong());
-        if (buffer.remaining() >= 8) {
-            meta.setRootPosition(buffer.getLong());
-        }
-        if (buffer.remaining() >= 8) {
-            meta.setEntryCount(buffer.getLong());
-        }
-        if (buffer.remaining() >= 8) {
-            meta.setHeaderSize(buffer.getInt());
-            meta.setChildrenSize(buffer.getInt());
-        }
-        channel.close();
         return meta;
     }
 
     public static Page loadPage(Configuration conf, long position) throws IOException {
-        FileChannel channel = FileChannel.open(conf.getPath(), StandardOpenOption.READ);
-        channel.position(position);
-        ByteBuffer buffer = ByteBuffer.allocate(conf.getPageSize());
-        channel.read(buffer);
-        channel.close();
-        return new Page(conf, buffer);
+        try (FileChannel channel = FileChannel.open(conf.getPath(), StandardOpenOption.READ)) {
+            channel.position(position);
+            ByteBuffer buffer = ByteBuffer.allocate(conf.getPageSize());
+            channel.read(buffer);
+            return new Page(conf, buffer);
+        }
     }
 
     public static TreeNode loadTreeNode(Configuration conf, long position) throws IOException {
@@ -135,13 +135,13 @@ public class PageLoader {
 
     public static void writePage(TreeNode node) throws IOException {
         Configuration conf = node.getConfiguration();
-        FileChannel channel = FileChannel.open(conf.getPath(), StandardOpenOption.WRITE);
-        channel.position(node.getPosition());
-        ByteBuffer buffer = node.byteBuffer();
-        buffer.flip();
-        channel.write(buffer);
-        channel.force(true);
-        channel.close();
+        try (FileChannel channel = FileChannel.open(conf.getPath(), StandardOpenOption.WRITE)) {
+            channel.position(node.getPosition());
+            ByteBuffer buffer = node.byteBuffer();
+            buffer.flip();
+            channel.write(buffer);
+            channel.force(true);
+        }
     }
 
     // ==================== 溢出页操作 ====================
@@ -151,25 +151,25 @@ public class PageLoader {
      */
     public static void writeOverflowPage(OverFlowPage page) throws IOException {
         Configuration conf = page.getConfiguration();
-        FileChannel channel = FileChannel.open(conf.getPath(), StandardOpenOption.WRITE);
-        channel.position(page.getPosition());
-        ByteBuffer buffer = page.byteBuffer();
-        channel.write(buffer);
-        channel.force(true);
-        channel.close();
+        try (FileChannel channel = FileChannel.open(conf.getPath(), StandardOpenOption.WRITE)) {
+            channel.position(page.getPosition());
+            ByteBuffer buffer = page.byteBuffer();
+            channel.write(buffer);
+            channel.force(true);
+        }
     }
 
     /**
      * 加载溢出页
      */
     public static OverFlowPage loadOverflowPage(Configuration conf, long position) throws IOException {
-        FileChannel channel = FileChannel.open(conf.getPath(), StandardOpenOption.READ);
-        channel.position(position);
-        ByteBuffer buffer = ByteBuffer.allocate(conf.getPageSize());
-        channel.read(buffer);
-        buffer.flip();
-        channel.close();
-        return new OverFlowPage(conf, buffer);
+        try (FileChannel channel = FileChannel.open(conf.getPath(), StandardOpenOption.READ)) {
+            channel.position(position);
+            ByteBuffer buffer = ByteBuffer.allocate(conf.getPageSize());
+            channel.read(buffer);
+            buffer.flip();
+            return new OverFlowPage(conf, buffer);
+        }
     }
 
     /**
@@ -194,6 +194,33 @@ public class PageLoader {
     public static void writeOverflowPages(List<OverFlowPage> pages) throws IOException {
         for (OverFlowPage page : pages) {
             writeOverflowPage(page);
+        }
+    }
+
+    // ==================== 空闲页链表操作 ====================
+
+    /**
+     * 写入空闲页链表
+     */
+    public static void writeFreePageList(FreePageList freePageList) throws IOException {
+        Configuration conf = freePageList.getConfiguration();
+        try (FileChannel channel = FileChannel.open(conf.getPath(), StandardOpenOption.WRITE)) {
+            channel.position(freePageList.getDiskPosition());
+            ByteBuffer buffer = freePageList.byteBuffer();
+            channel.write(buffer);
+            channel.force(true);
+        }
+    }
+
+    /**
+     * 加载空闲页链表
+     */
+    public static FreePageList loadFreePageList(Configuration conf, long position) throws IOException {
+        try (FileChannel channel = FileChannel.open(conf.getPath(), StandardOpenOption.READ)) {
+            channel.position(position);
+            ByteBuffer buffer = ByteBuffer.allocate(conf.getPageSize());
+            channel.read(buffer);
+            return FreePageList.fromByteBuffer(conf, position, buffer);
         }
     }
 }

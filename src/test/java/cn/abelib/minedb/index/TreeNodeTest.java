@@ -19,18 +19,23 @@ import static org.junit.Assert.*;
 public class TreeNodeTest {
     private Configuration conf;
     private TreeNode node;
+    private PageCache pageCache;
 
     @Before
     public void init() throws IOException {
         cleanup();
         conf = new Configuration();
+        pageCache = new PageCache();
         node = new TreeNode(conf, true, true, 0);
+        node.setPageCache(pageCache);
     }
 
     @After
     public void cleanup() throws IOException {
         Files.deleteIfExists(Paths.get("default.db"));
-        GlobalPageCache.getInstance().clear();
+        if (pageCache != null) {
+            pageCache.clear();
+        }
     }
 
     @Test
@@ -126,11 +131,11 @@ public class TreeNodeTest {
 
         node.setDirty(true);
         assertTrue(node.isDirty());
-        assertEquals(1, GlobalPageCache.getInstance().getDirtyPageCount());
+        assertEquals(1, pageCache.getDirtyPageCount());
 
         node.setDirty(false);
         assertFalse(node.isDirty());
-        assertEquals(1, GlobalPageCache.getInstance().getCleanPageCount());
+        assertEquals(1, pageCache.getCleanPageCount());
     }
 
     @Test

@@ -3,7 +3,9 @@ package cn.abelib.minedb.kv;
 import cn.abelib.minedb.utils.KeyValue;
 
 import java.io.Closeable;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * KV 数据库接口
@@ -26,6 +28,24 @@ public interface Db extends Closeable {
     void put(String key, String value) throws Exception;
 
     /**
+     * 批量插入或更新键值对
+     *
+     * @param keyValues 键值对映射
+     * @return 成功插入/更新的数量
+     * @throws Exception 操作异常
+     */
+    int batchPut(Map<String, String> keyValues) throws Exception;
+
+    /**
+     * 批量插入或更新键值对
+     *
+     * @param keyValues 键值对列表
+     * @return 成功插入/更新的数量
+     * @throws Exception 操作异常
+     */
+    int batchPut(List<KeyValue> keyValues) throws Exception;
+
+    /**
      * 获取键对应的值
      *
      * @param key 键
@@ -35,6 +55,15 @@ public interface Db extends Closeable {
     String get(String key) throws Exception;
 
     /**
+     * 批量获取键对应的值
+     *
+     * @param keys 键列表
+     * @return 键值对映射，不存在的键不会包含在结果中
+     * @throws Exception 操作异常
+     */
+    Map<String, String> batchGet(List<String> keys) throws Exception;
+
+    /**
      * 删除键值对
      *
      * @param key 键
@@ -42,6 +71,15 @@ public interface Db extends Closeable {
      * @throws Exception 操作异常
      */
     boolean delete(String key) throws Exception;
+
+    /**
+     * 批量删除键值对
+     *
+     * @param keys 键列表
+     * @return 成功删除的数量
+     * @throws Exception 操作异常
+     */
+    int batchDelete(List<String> keys) throws Exception;
 
     /**
      * 检查 key 是否存在
@@ -91,4 +129,29 @@ public interface Db extends Closeable {
      * @throws Exception 操作异常
      */
     void sync() throws Exception;
+
+    /**
+     * 获取迭代器，遍历所有键值对
+     *
+     * @return 键值对迭代器
+     * @throws Exception 操作异常
+     */
+    Iterator<KeyValue> iterator() throws Exception;
+
+    /**
+     * 获取迭代器，从指定键开始遍历
+     *
+     * @param startKey 起始键（包含），null 表示从头开始
+     * @return 键值对迭代器
+     * @throws Exception 操作异常
+     */
+    Iterator<KeyValue> iterator(String startKey) throws Exception;
+
+    /**
+     * 开启新事务
+     *
+     * @return 事务对象
+     * @throws Exception 操作异常
+     */
+    Transaction beginTransaction() throws Exception;
 }

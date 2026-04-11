@@ -15,9 +15,14 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 /**
  * 全局页缓存
  *
- * @Author: abel.huang
- * @Date: 2020-11-07 15:36
+ * <p>已废弃：请使用 {@link PageCache} 代替。每个数据库实例应该有独立的页缓存。
+ *
+ * @author abel.huang
+ * @date 2020-11-07 15:36
+ * @deprecated 使用 {@link PageCache} 代替，每个数据库实例有独立的缓存
+ * @see PageCache
  */
+@Deprecated
 public class GlobalPageCache {
     private static final GlobalPageCache INSTANCE = new GlobalPageCache();
 
